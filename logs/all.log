@@ -1,0 +1,9 @@
+{"level":"\u001b[32minfo\u001b[39m","message":"\u001b[32mServer running on port 3001\u001b[39m","timestamp":"2025-11-07 00:25:18:2518"}
+{"level":"\u001b[32minfo\u001b[39m","message":"\u001b[32mMongoDB Connected: localhost\u001b[39m","timestamp":"2025-11-07 00:25:18:2518"}
+{"level":"\u001b[32minfo\u001b[39m","message":"\u001b[32mServer running on port 5000\u001b[39m","timestamp":"2025-11-07 00:25:55:2555"}
+{"level":"\u001b[32minfo\u001b[39m","message":"\u001b[32mMongoDB Connected: localhost\u001b[39m","timestamp":"2025-11-07 00:25:55:2555"}
+{"level":"\u001b[32minfo\u001b[39m","message":"\u001b[32mServer running on port 5000\u001b[39m","timestamp":"2025-11-07 00:31:44:3144"}
+{"level":"\u001b[32minfo\u001b[39m","message":"\u001b[32mMongoDB Connected: localhost\u001b[39m","timestamp":"2025-11-07 00:31:44:3144"}
+{"level":"\u001b[32minfo\u001b[39m","message":"\u001b[32mServer running on port 5000\u001b[39m","timestamp":"2025-11-07 00:33:43:3343"}
+{"level":"\u001b[32minfo\u001b[39m","message":"\u001b[32mMongoDB Connected: localhost\u001b[39m","timestamp":"2025-11-07 00:33:43:3343"}
+{"ip":"::1","level":"\u001b[32minfo\u001b[39m","message":"\u001b[32mGET /health\u001b[39m","timestamp":"2025-11-07 00:34:15:3415","userAgent":"curl/8.5.0"}
