@@ -3,7 +3,6 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const logger = require('./utils/logger');
-const { setupKindeAuth } = require('./config/kinde');
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -18,21 +17,13 @@ const { notFound } = require('./middleware/notFound');
 
 const app = express();
 
-// Initialize Kinde
-const kindeConfig = setupKindeAuth(app);
-if (kindeConfig) {
-  console.log('✅ Kinde authentication initialized successfully');
-} else {
-  console.log('⚠️  Kinde authentication not configured - using traditional auth only');
-}
-
 // Security middleware
 app.use(helmet());
 
-// Rate limiting
+// Rate limiting (more permissive for development)
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  max: 1000, // increased for development
   message: 'Too many requests from this IP, please try again later.'
 });
 app.use('/api/', limiter);

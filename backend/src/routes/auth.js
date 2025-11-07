@@ -1,7 +1,6 @@
 const express = require('express');
 const {
-  kindeLogin,
-  kindeCallback,
+  syncUser,
   register,
   login,
   getMe,
@@ -21,9 +20,8 @@ const {
 
 const router = express.Router();
 
-// Kinde authentication routes
-router.get('/kinde/auth', kindeLogin);
-router.get('/kinde/callback', kindeCallback);
+// Kinde user sync route (called from frontend after Kinde auth)
+router.post('/sync', syncUser);
 
 // Traditional authentication routes
 router.post('/register', validate(registerSchema), register);

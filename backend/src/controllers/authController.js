@@ -10,39 +10,55 @@ const generateToken = (id) => {
   });
 };
 
-// @desc    Kinde login - redirect to Kinde authorization
-// @route   GET /api/auth/kinde/auth
-// @access  Public
-const kindeLogin = async (req, res, next) => {
+// @desc    Sync user from frontend Kinde authentication
+// @route   POST /api/auth/sync
+// @access  Public (validates Kinde token)
+const syncUser = async (req, res, next) => {
   try {
-    // Use Kinde client to get login URL
-    const loginUrl = await req.kinde.login();
-    res.redirect(loginUrl);
-  } catch (error) {
-    logger.error('Kinde login error:', error);
-    next(new AppError('Failed to initiate Kinde login', 500));
-  }
-};
+    const { kindeUser, accessToken } = req.body;
 
-// @desc    Kinde callback - handle user authentication and registration
-// @route   GET /api/auth/kinde/callback
-// @access  Public
-const kindeCallback = async (req, res, next) => {
-  try {
-    // Get user from Kinde
-    const kindeUser = await req.kinde.getUser();
+    logger.info('Sync user request received', { 
+      hasKindeUser: !!kindeUser, 
+      hasAccessToken: !!accessToken,
+      kindeUserKeys: kindeUser ? Object.keys(kindeUser) : null
+    });
 
-    if (!kindeUser) {
-      return next(new AppError('Kinde authentication failed - no user data', 401));
+    if (!kindeUser || !accessToken) {
+      return next(new AppError('User data and access token are required', 400));
     }
 
-    const { id: kindeId, email, given_name, family_name } = kindeUser;
+    // Verify the Kinde access token by making a request to Kinde's user endpoint
+    const kindeResponse = await fetch(`${process.env.KINDE_DOMAIN}/oauth2/v2/user_profile`, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json'
+      }
+    });
 
-    if (!email) {
-      return next(new AppError('Email is required from Kinde', 400));
+    if (!kindeResponse.ok) {
+      return next(new AppError('Invalid Kinde access token', 401));
     }
 
-    // Check if user exists by kindeId or email
+    const verifiedUser = await kindeResponse.json();
+    
+    logger.info('Kinde user verification successful', { 
+      verifiedUser,
+      kindeUser
+    });
+    
+    // Ensure the user data matches what was sent
+    if (verifiedUser.id !== kindeUser.id || verifiedUser.email !== kindeUser.email) {
+      return next(new AppError('User data mismatch', 401));
+    }
+
+    // Handle different possible field names from Kinde
+    const kindeId = kindeUser.id;
+    const email = kindeUser.email;
+    const givenName = kindeUser.given_name || kindeUser.givenName || kindeUser.first_name || '';
+    const familyName = kindeUser.family_name || kindeUser.familyName || kindeUser.last_name || '';
+    
+    logger.info('Extracted user data', { kindeId, email, givenName, familyName });
+
     let user = await User.findOne({
       $or: [
         { kindeId: kindeId },
@@ -51,37 +67,38 @@ const kindeCallback = async (req, res, next) => {
     });
 
     if (user) {
-      // Update existing user with kindeId if not present
-      if (!user.kindeId) {
-        user.kindeId = kindeId;
-        user.name = user.name || `${given_name || ''} ${family_name || ''}`.trim();
-        await user.save();
-      }
+      user.kindeId = kindeId;
+      user.name = `${givenName} ${familyName}`.trim();
+      user.lastLogin = new Date();
+      await user.save();
     } else {
-      // Create new user
       user = await User.create({
-        name: `${given_name || ''} ${family_name || ''}`.trim() || email.split('@')[0],
+        name: `${givenName} ${familyName}`.trim(),
         email: email,
         kindeId: kindeId,
-        role: 'doctor', // Default role, can be updated later
+        role: 'doctor',
         lastLogin: new Date()
       });
     }
 
-    // Update last login
-    user.lastLogin = new Date();
-    await user.save();
-
-    // Generate JWT token for API access
     const token = generateToken(user._id);
 
-    logger.info(`User authenticated via Kinde: ${user.email}`, { userId: user._id, kindeId });
+    logger.info(`User synced from Kinde: ${user.email}`, { userId: user._id });
 
-    // Redirect to frontend with token
-    const redirectUrl = `${process.env.FRONTEND_URL || "http://localhost:3000"}/dashboard?token=${token}`;
-    res.redirect(redirectUrl);
+    res.status(200).json({
+      success: true,
+      data: {
+        user: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          avatar: user.avatar
+        },
+        token
+      }
+    });
   } catch (error) {
-    logger.error('Kinde callback error:', error);
     next(error);
   }
 };
@@ -308,8 +325,7 @@ const logout = (req, res, next) => {
 };
 
 module.exports = {
-  kindeLogin,
-  kindeCallback,
+  syncUser,
   register,
   login,
   getMe,

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -9,55 +9,25 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { UserRole } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
-import { socketService } from '@/lib/socket';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<UserRole>('doctor');
-  const { login, loading, error, user, logout } = useAuth();
+  const { kindeLogin, traditionalLogin, loading, error, user } = useAuth();
   const router = useRouter();
-  const searchParams = useSearchParams();
 
-  // Handle Kinde callback
+  // Handle Kinde callback - no longer needed since we handle this in AuthContext
   useEffect(() => {
-    const token = searchParams.get('token');
-    if (token && !user) {
-      // Store token
-      localStorage.setItem('token', token);
-      // Fetch user data from backend and set in context
-      fetchUserData(token);
+    if (user) {
+      router.push('/dashboard');
     }
-  }, [searchParams, user]);
-
-  const fetchUserData = async (token: string) => {
-    try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/auth/me`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        const userData = data.data.user;
-        localStorage.setItem('user', JSON.stringify(userData));
-        // The auth context will pick this up on next render
-        window.location.href = '/dashboard';
-      } else {
-        console.error('Failed to fetch user data');
-        // Force a page reload to clear any auth state
-        window.location.href = '/login';
-      }
-    } catch (error) {
-      console.error('Failed to fetch user data:', error);
-      window.location.href = '/login';
-    }
-  };
+  }, [user, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await login(email, password);
+      await traditionalLogin(email, password);
       // Redirect is handled in AuthContext
     } catch (error) {
       // Error is handled in AuthContext
@@ -65,8 +35,7 @@ export default function LoginPage() {
   };
 
   const handleKindeLogin = () => {
-    // Redirect to backend Kinde auth endpoint
-    window.location.href = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/auth/kinde/auth`;
+    kindeLogin();
   };
 
   return (

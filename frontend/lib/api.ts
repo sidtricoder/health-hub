@@ -1,6 +1,6 @@
 import { User, Patient, Message, Notification, TimelineEvent } from '@/types';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
 class ApiService {
   private getAuthHeaders() {
@@ -18,10 +18,15 @@ class ApiService {
       ...options,
     };
 
+    console.log('API Request:', { url, headers: config.headers });
+
     const response = await fetch(url, config);
+
+    console.log('API Response:', { status: response.status, ok: response.ok });
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ message: 'Network error' }));
+      console.error('API Error:', error);
       throw new Error(error.message || `HTTP ${response.status}`);
     }
 
@@ -29,15 +34,25 @@ class ApiService {
   }
 
   // Auth endpoints
+  async syncUser(data: {
+    kindeUser: any;
+    accessToken: string;
+  }) {
+    return this.request<{ success: boolean; data: { user: User; token: string } }>('/auth/sync', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
   async login(email: string, password: string) {
-    const response = await this.request<{ success: boolean; token: string; data: User }>('/auth/login', {
+    const response = await this.request<{ success: boolean; data: { user: User; token: string } }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
 
-    if (response.token) {
-      localStorage.setItem('token', response.token);
-      localStorage.setItem('user', JSON.stringify(response.data));
+    if (response.data.token) {
+      localStorage.setItem('token', response.data.token);
+      localStorage.setItem('user', JSON.stringify(response.data.user));
     }
 
     return response;
@@ -49,7 +64,7 @@ class ApiService {
     password: string;
     role: string;
   }) {
-    return this.request<{ success: boolean; token: string; data: User }>('/auth/register', {
+    return this.request<{ success: boolean; data: { user: User; token: string } }>('/auth/register', {
       method: 'POST',
       body: JSON.stringify(userData),
     });

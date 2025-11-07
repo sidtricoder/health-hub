@@ -1,8 +1,5 @@
 require('dotenv').config({ path: __dirname + '/.env' });
 
-// Ensure environment variables are loaded before requiring app
-console.log('Environment check - KINDE_DOMAIN:', process.env.KINDE_DOMAIN);
-
 const app = require('./src/app');
 const http = require('http');
 const socketIo = require('socket.io');
