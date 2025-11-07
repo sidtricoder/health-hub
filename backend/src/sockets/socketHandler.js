@@ -2,47 +2,186 @@ const Message = require('../models/Message');
 const Notification = require('../models/Notification');
 const Patient = require('../models/Patient');
 const TimelineEvent = require('../models/TimelineEvent');
+const User = require('../models/User');
 const logger = require('../utils/logger');
 
-const activeUsers = new Map(); // userId -> socketId
+const activeUsers = new Map(); // userId -> { socketId, joinedAt, lastActivity, patientRooms }
+const patientRooms = new Map(); // patientId -> Set of userIds
 
 const initializeSocket = (io) => {
   io.on('connection', (socket) => {
-    logger.info(`User connected: ${socket.id}`);
+    logger.info(`Socket connected: ${socket.id}`);
 
-    // User joins their personal room
-    socket.on('join', (userId) => {
-      socket.join(userId);
-      activeUsers.set(userId, socket.id);
-      logger.info(`User ${userId} joined room`);
+    // Enhanced user authentication and join
+    socket.on('authenticate', async (data) => {
+      try {
+        const { userId, token } = data;
+        
+        // Verify token and get user (simplified for now)
+        const user = await User.findById(userId);
+        if (!user) {
+          socket.emit('auth_error', { message: 'Invalid user' });
+          return;
+        }
 
-      // Notify others that user is online
-      socket.broadcast.emit('user_online', { userId });
+        // Store user info
+        socket.userId = userId;
+        socket.user = user;
+        socket.join(userId);
+        
+        activeUsers.set(userId, {
+          socketId: socket.id,
+          joinedAt: new Date(),
+          lastActivity: new Date(),
+          patientRooms: new Set()
+        });
+
+        logger.info(`User authenticated: ${user.name} (${user.role}) - ${socket.id}`);
+
+        // Send auth success and current active users
+        socket.emit('authenticated', { 
+          user: {
+            id: user._id,
+            name: user.name,
+            role: user.role,
+            avatar: user.avatar
+          },
+          activeUsersCount: activeUsers.size
+        });
+
+        // Notify others that user is online
+        socket.broadcast.emit('user_online', { 
+          userId, 
+          userName: user.name, 
+          userRole: user.role 
+        });
+
+      } catch (error) {
+        logger.error('Authentication error:', error);
+        socket.emit('auth_error', { message: 'Authentication failed' });
+      }
     });
 
-    // Handle real-time messaging
+    // Join patient room for real-time updates
+    socket.on('join_patient', async (data) => {
+      try {
+        const { patientId } = data;
+        const userId = socket.userId;
+
+        if (!userId) {
+          socket.emit('error', { message: 'Not authenticated' });
+          return;
+        }
+
+        // Verify user has access to this patient
+        const patient = await Patient.findById(patientId);
+        if (!patient) {
+          socket.emit('error', { message: 'Patient not found' });
+          return;
+        }
+
+        // Check if user has access
+        const hasAccess = patient.assignedDoctor.toString() === userId ||
+                         patient.assignedNurse?.toString() === userId ||
+                         socket.user.role === 'admin';
+
+        if (!hasAccess) {
+          socket.emit('error', { message: 'Unauthorized access to patient' });
+          return;
+        }
+
+        // Join patient room
+        socket.join(`patient_${patientId}`);
+        
+        // Update user's patient rooms
+        const userInfo = activeUsers.get(userId);
+        if (userInfo) {
+          userInfo.patientRooms.add(patientId);
+          userInfo.lastActivity = new Date();
+        }
+
+        // Update patient rooms tracking
+        if (!patientRooms.has(patientId)) {
+          patientRooms.set(patientId, new Set());
+        }
+        patientRooms.get(patientId).add(userId);
+
+        logger.info(`User ${userId} joined patient room ${patientId}`);
+        
+        // Notify others in the room
+        socket.to(`patient_${patientId}`).emit('user_joined_patient', {
+          userId,
+          userName: socket.user.name,
+          userRole: socket.user.role,
+          patientId
+        });
+
+        socket.emit('patient_joined', { patientId });
+
+      } catch (error) {
+        logger.error('Error joining patient room:', error);
+        socket.emit('error', { message: 'Failed to join patient room' });
+      }
+    });
+
+    // Leave patient room
+    socket.on('leave_patient', (data) => {
+      const { patientId } = data;
+      const userId = socket.userId;
+
+      if (userId) {
+        socket.leave(`patient_${patientId}`);
+        
+        const userInfo = activeUsers.get(userId);
+        if (userInfo) {
+          userInfo.patientRooms.delete(patientId);
+        }
+
+        const roomUsers = patientRooms.get(patientId);
+        if (roomUsers) {
+          roomUsers.delete(userId);
+          if (roomUsers.size === 0) {
+            patientRooms.delete(patientId);
+          }
+        }
+
+        socket.to(`patient_${patientId}`).emit('user_left_patient', {
+          userId,
+          userName: socket.user?.name,
+          patientId
+        });
+      }
+    });
+
+    // Enhanced messaging with delivery tracking
     socket.on('send_message', async (data) => {
       try {
-        const { patientId, content, senderId, senderName, senderRole } = data;
+        const { patientId, content, type = 'text' } = data;
+        const userId = socket.userId;
+
+        if (!userId) {
+          socket.emit('error', { message: 'Not authenticated' });
+          return;
+        }
 
         // Create message in database
         const message = await Message.create({
           patientId,
-          senderId,
-          senderName,
-          senderRole,
+          senderId: userId,
+          senderName: socket.user.name,
+          senderRole: socket.user.role,
           content,
-          type: 'text'
+          type
         });
 
         // Create timeline event
         await TimelineEvent.create({
           patientId,
-          type: 'message_sent',
-          description: `Message sent by ${senderName} (${senderRole})`,
-          userId: senderId,
-          userName: senderName,
-          userRole: senderRole,
+          type: 'note_added',
+          description: `Message sent by ${socket.user.name} (${socket.user.role})`,
+          userId,
+          userName: socket.user.name,
+          userRole: socket.user.role,
           metadata: {
             messageId: message._id,
             content: content.substring(0, 100) + (content.length > 100 ? '...' : '')
@@ -52,7 +191,28 @@ const initializeSocket = (io) => {
         // Populate sender info
         await message.populate('senderId', 'name role avatar');
 
-        // Get patient to find recipients
+        // Send to all users in patient room
+        io.to(`patient_${patientId}`).emit('new_message', {
+          patientId,
+          message: {
+            id: message._id,
+            patientId: message.patientId,
+            senderId: message.senderId._id,
+            senderName: message.senderName,
+            senderRole: message.senderRole,
+            content: message.content,
+            timestamp: message.timestamp,
+            type: message.type
+          }
+        });
+
+        // Send delivery confirmation to sender
+        socket.emit('message_delivered', { 
+          messageId: message._id,
+          timestamp: message.timestamp 
+        });
+
+        // Send notifications to offline users
         const patient = await Patient.findById(patientId);
         if (patient) {
           const recipients = [
@@ -60,116 +220,252 @@ const initializeSocket = (io) => {
             patient.assignedNurse?.toString()
           ].filter(Boolean);
 
-          // Send to all recipients except sender
-          recipients.forEach(recipientId => {
-            if (recipientId !== senderId) {
-              io.to(recipientId).emit('new_message', {
+          recipients.forEach(async (recipientId) => {
+            if (recipientId !== userId && !activeUsers.has(recipientId)) {
+              // Create notification for offline users
+              await Notification.create({
+                recipientId,
+                senderId: userId,
+                type: 'patient_message',
+                title: 'New Patient Message',
+                message: `${socket.user.name}: ${content.substring(0, 50)}${content.length > 50 ? '...' : ''}`,
                 patientId,
-                message
+                metadata: { messageId: message._id }
               });
             }
           });
-
-          // Send back to sender
-          io.to(senderId).emit('message_sent', { message });
         }
+
       } catch (error) {
         logger.error('Error sending message:', error);
         socket.emit('message_error', { error: 'Failed to send message' });
       }
     });
 
-    // Handle patient updates
+    // Real-time patient updates
     socket.on('patient_update', async (data) => {
       try {
-        const { patientId, updateType, updateData, userId, userName, userRole } = data;
+        const { patientId, updateType, updateData, description } = data;
+        const userId = socket.userId;
+
+        if (!userId) {
+          socket.emit('error', { message: 'Not authenticated' });
+          return;
+        }
 
         // Create timeline event
-        await TimelineEvent.create({
+        const timelineEvent = await TimelineEvent.create({
           patientId,
           type: updateType,
-          description: `${updateType.replace('_', ' ')} updated by ${userName} (${userRole})`,
+          description: description || `${updateType.replace('_', ' ')} updated by ${socket.user.name}`,
           userId,
-          userName,
-          userRole,
+          userName: socket.user.name,
+          userRole: socket.user.role,
           metadata: updateData
         });
 
-        // Get patient to find recipients
-        const patient = await Patient.findById(patientId);
-        if (patient) {
-          const recipients = [
-            patient.assignedDoctor.toString(),
-            patient.assignedNurse?.toString()
-          ].filter(Boolean);
+        // Send real-time update to all users in patient room
+        io.to(`patient_${patientId}`).emit('patient_updated', {
+          patientId,
+          updateType,
+          updateData,
+          timelineEvent: {
+            id: timelineEvent._id,
+            type: timelineEvent.type,
+            description: timelineEvent.description,
+            timestamp: timelineEvent.timestamp,
+            userName: timelineEvent.userName,
+            userRole: timelineEvent.userRole,
+            metadata: timelineEvent.metadata
+          },
+          updatedBy: { 
+            userId, 
+            userName: socket.user.name, 
+            userRole: socket.user.role 
+          }
+        });
 
-          // Notify all recipients
-          recipients.forEach(recipientId => {
-            io.to(recipientId).emit('patient_updated', {
-              patientId,
-              updateType,
-              updateData,
-              updatedBy: { userId, userName, userRole }
-            });
-          });
-        }
       } catch (error) {
         logger.error('Error handling patient update:', error);
+        socket.emit('error', { message: 'Failed to update patient' });
       }
     });
 
-    // Handle notifications
+    // Enhanced notifications
     socket.on('send_notification', async (data) => {
       try {
-        const { recipientId, type, title, message, patientId, metadata } = data;
+        const { recipientId, type, title, message, patientId, metadata = {}, urgent = false } = data;
+        const userId = socket.userId;
+
+        if (!userId) {
+          socket.emit('error', { message: 'Not authenticated' });
+          return;
+        }
 
         // Create notification in database
         const notification = await Notification.create({
           recipientId,
-          senderId: data.senderId,
+          senderId: userId,
           type,
           title,
           message,
           patientId,
-          metadata: metadata || {}
+          metadata: { ...metadata, urgent }
         });
 
-        // Populate sender and patient info
+        // Populate related data
         await notification.populate('senderId', 'name role avatar');
-        await notification.populate('patientId', 'name mrn');
+        if (patientId) {
+          await notification.populate('patientId', 'name medicalRecordNumber');
+        }
 
         // Send to recipient
-        io.to(recipientId).emit('new_notification', { notification });
+        io.to(recipientId).emit('new_notification', { 
+          notification: {
+            id: notification._id,
+            type: notification.type,
+            title: notification.title,
+            message: notification.message,
+            patientId: notification.patientId,
+            isRead: notification.isRead,
+            createdAt: notification.createdAt,
+            urgent: metadata.urgent || false
+          }
+        });
+
+        // If urgent, also send system alert
+        if (urgent) {
+          io.to(recipientId).emit('urgent_alert', {
+            title,
+            message,
+            notificationId: notification._id
+          });
+        }
+
       } catch (error) {
         logger.error('Error sending notification:', error);
+        socket.emit('error', { message: 'Failed to send notification' });
       }
     });
 
-    // Handle typing indicators
+    // Typing indicators
     socket.on('typing_start', (data) => {
-      const { patientId, userId, userName } = data;
-      socket.to(patientId).emit('user_typing', { userId, userName });
+      const { patientId } = data;
+      const userId = socket.userId;
+      
+      if (userId) {
+        socket.to(`patient_${patientId}`).emit('user_typing', { 
+          userId, 
+          userName: socket.user.name,
+          patientId 
+        });
+      }
     });
 
     socket.on('typing_stop', (data) => {
-      const { patientId, userId } = data;
-      socket.to(patientId).emit('user_stopped_typing', { userId });
+      const { patientId } = data;
+      const userId = socket.userId;
+      
+      if (userId) {
+        socket.to(`patient_${patientId}`).emit('user_stopped_typing', { 
+          userId,
+          patientId 
+        });
+      }
+    });
+
+    // Activity tracking
+    socket.on('activity', () => {
+      const userId = socket.userId;
+      if (userId) {
+        const userInfo = activeUsers.get(userId);
+        if (userInfo) {
+          userInfo.lastActivity = new Date();
+        }
+      }
+    });
+
+    // Ping/Pong for connection health
+    socket.on('ping', () => {
+      socket.emit('pong', { timestamp: Date.now() });
     });
 
     // Handle disconnect
     socket.on('disconnect', () => {
-      // Find userId by socketId and remove from active users
-      for (const [userId, socketId] of activeUsers.entries()) {
-        if (socketId === socket.id) {
-          activeUsers.delete(userId);
-          // Notify others that user is offline
-          socket.broadcast.emit('user_offline', { userId });
-          logger.info(`User ${userId} disconnected`);
-          break;
+      const userId = socket.userId;
+      
+      if (userId) {
+        // Clean up patient rooms
+        const userInfo = activeUsers.get(userId);
+        if (userInfo) {
+          userInfo.patientRooms.forEach(patientId => {
+            socket.to(`patient_${patientId}`).emit('user_left_patient', {
+              userId,
+              userName: socket.user?.name,
+              patientId
+            });
+            
+            const roomUsers = patientRooms.get(patientId);
+            if (roomUsers) {
+              roomUsers.delete(userId);
+              if (roomUsers.size === 0) {
+                patientRooms.delete(patientId);
+              }
+            }
+          });
         }
+
+        // Remove from active users
+        activeUsers.delete(userId);
+        
+        // Notify others that user is offline
+        socket.broadcast.emit('user_offline', { 
+          userId,
+          userName: socket.user?.name 
+        });
+        
+        logger.info(`User disconnected: ${socket.user?.name || userId} - ${socket.id}`);
+      } else {
+        logger.info(`Unknown user disconnected: ${socket.id}`);
       }
     });
   });
+
+  // Periodic cleanup of inactive connections
+  setInterval(() => {
+    const now = new Date();
+    const inactiveThreshold = 30 * 60 * 1000; // 30 minutes
+
+    for (const [userId, userInfo] of activeUsers.entries()) {
+      if (now - userInfo.lastActivity > inactiveThreshold) {
+        const socket = io.sockets.sockets.get(userInfo.socketId);
+        if (socket) {
+          socket.disconnect(true);
+        }
+        activeUsers.delete(userId);
+        logger.info(`Disconnected inactive user: ${userId}`);
+      }
+    }
+  }, 5 * 60 * 1000); // Check every 5 minutes
 };
 
-module.exports = { initializeSocket };
+// Helper functions
+const getActiveUsers = () => {
+  return Array.from(activeUsers.entries()).map(([userId, info]) => ({
+    userId,
+    socketId: info.socketId,
+    joinedAt: info.joinedAt,
+    lastActivity: info.lastActivity,
+    patientRoomsCount: info.patientRooms.size
+  }));
+};
+
+const getUsersInPatientRoom = (patientId) => {
+  return patientRooms.get(patientId) || new Set();
+};
+
+module.exports = { 
+  initializeSocket, 
+  getActiveUsers, 
+  getUsersInPatientRoom 
+};

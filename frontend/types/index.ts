@@ -6,11 +6,24 @@ export interface User {
   email: string;
   role: UserRole;
   avatar?: string;
+  specialization?: string;
+  department?: string;
+  licenseNumber?: string;
+  phone?: string;
+  emergencyContact?: {
+    name: string;
+    relationship: string;
+    phone: string;
+  };
+  isActive?: boolean;
 }
 
 export interface Patient {
-  id: string;
-  name: string;
+  id: string; // Required
+  _id?: string;
+  name: string; // Required - Combined firstName + lastName
+  firstName: string;
+  lastName: string;
   dateOfBirth: string;
   gender: 'male' | 'female' | 'other';
   phone: string;
@@ -19,14 +32,32 @@ export interface Patient {
   emergencyContact: {
     name: string;
     phone: string;
-    relationship: string;
+    relationship: 'spouse' | 'parent' | 'child' | 'sibling' | 'friend' | 'other';
   };
-  medicalRecordNumber: string;
+  medicalRecordNumber: string; // Required
   admissionDate: string;
   bedNumber?: string;
-  status: 'active' | 'discharged' | 'transferred';
-  assignedDoctor?: string;
-  currentMedications: Medication[];
+  roomNumber?: string;
+  status: 'active' | 'discharged' | 'transferred' | 'deceased';
+  assignedDoctor: string;
+  assignedNurse?: string;
+  currentMedications: {
+    id?: string;
+    name: string;
+    dosage: string;
+    frequency: string;
+    startDate: string; // Required
+    endDate?: string;
+    prescribedBy: string;
+    status?: 'active' | 'discontinued' | 'completed';
+    notes?: string;
+  }[];
+  allergies?: {
+    allergen: string;
+    severity: 'mild' | 'moderate' | 'severe';
+    reaction: string;
+    notes?: string;
+  }[];
   vitals: Vital[];
   reports: Report[];
 }
@@ -45,7 +76,7 @@ export interface Medication {
 
 export interface Vital {
   id: string;
-  type: 'blood_pressure' | 'heart_rate' | 'temperature' | 'oxygen_saturation' | 'weight' | 'height';
+  type: 'blood_pressure' | 'heart_rate' | 'temperature' | 'oxygen_saturation' | 'weight' | 'height' | 'respiratory_rate';
   value: string;
   unit: string;
   recordedAt: string;
@@ -55,12 +86,13 @@ export interface Vital {
 
 export interface Report {
   id: string;
-  type: 'lab' | 'radiology' | 'consultation' | 'discharge';
+  type: 'lab' | 'radiology' | 'consultation' | 'discharge' | 'progress';
   title: string;
   content: string;
   uploadedBy: string;
   uploadedAt: string;
   fileUrl?: string;
+  isCritical?: boolean;
 }
 
 export interface Message {

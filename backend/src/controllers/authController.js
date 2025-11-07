@@ -3,9 +3,9 @@ const User = require('../models/User');
 const { AppError } = require('../middleware/errorHandler');
 const logger = require('../utils/logger');
 
-// Generate JWT Token
+// Generate JWT Token (use `userId` in payload to match middleware expectations)
 const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, {
+  return jwt.sign({ userId: id }, process.env.JWT_SECRET, {
     expiresIn: process.env.JWT_EXPIRE || '30d',
   });
 };
@@ -67,25 +67,121 @@ const syncUser = async (req, res, next) => {
     });
 
     if (user) {
+      // Existing user - update their info
       user.kindeId = kindeId;
       user.name = `${givenName} ${familyName}`.trim();
       user.lastLogin = new Date();
       await user.save();
+
+      const token = generateToken(user._id);
+
+      logger.info(`Existing user synced from Kinde: ${user.email}`, { userId: user._id });
+
+      res.status(200).json({
+        success: true,
+        data: {
+          user: {
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            avatar: user.avatar
+          },
+          token,
+          isNewUser: false
+        }
+      });
     } else {
-      user = await User.create({
-        name: `${givenName} ${familyName}`.trim(),
-        email: email,
-        kindeId: kindeId,
-        role: 'doctor',
-        lastLogin: new Date()
+      // New user - return user info without creating account yet
+      // The frontend will show role selection, then call /api/auth/complete-signup
+      logger.info(`New user detected from Kinde: ${email}`, { kindeId });
+
+      res.status(200).json({
+        success: true,
+        data: {
+          isNewUser: true,
+          userInfo: {
+            name: `${givenName} ${familyName}`.trim(),
+            email: email,
+            kindeId: kindeId
+          },
+          tempToken: jwt.sign({ 
+            kindeId, 
+            email, 
+            name: `${givenName} ${familyName}`.trim(),
+            temp: true 
+          }, process.env.JWT_SECRET, { expiresIn: '1h' })
+        }
       });
     }
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Complete signup with role selection
+// @route   POST /api/auth/complete-signup
+// @access  Public (requires temp token)
+const completeSignup = async (req, res, next) => {
+  try {
+    const { 
+      role, 
+      specialization, 
+      department, 
+      licenseNumber, 
+      phone, 
+      emergencyContact 
+    } = req.body;
+
+    if (!role) {
+      return next(new AppError('Role is required', 400));
+    }
+
+    // Get temp user data from middleware
+    if (!req.tempUser) {
+      return next(new AppError('Invalid authentication token', 401));
+    }
+
+    const { kindeId, email, name } = req.tempUser;
+
+    // Validate role
+    const validRoles = ['doctor', 'nurse', 'lab_technician', 'receptionist', 'admin'];
+    if (!validRoles.includes(role)) {
+      return next(new AppError('Invalid role selected', 400));
+    }
+
+    // Check if user already exists
+    const existingUser = await User.findOne({
+      $or: [
+        { kindeId: kindeId },
+        { email: email }
+      ]
+    });
+
+    if (existingUser) {
+      return next(new AppError('User already exists', 400));
+    }
+
+    // Create new user with selected role and additional info
+    const user = await User.create({
+      name,
+      email,
+      kindeId,
+      role,
+      specialization,
+      department,
+      licenseNumber,
+      phone,
+      emergencyContact,
+      lastLogin: new Date(),
+      isActive: true
+    });
 
     const token = generateToken(user._id);
 
-    logger.info(`User synced from Kinde: ${user.email}`, { userId: user._id });
+    logger.info(`New user created from Kinde with role ${role}: ${user.email}`, { userId: user._id });
 
-    res.status(200).json({
+    res.status(201).json({
       success: true,
       data: {
         user: {
@@ -93,9 +189,15 @@ const syncUser = async (req, res, next) => {
           name: user.name,
           email: user.email,
           role: user.role,
+          specialization: user.specialization,
+          department: user.department,
+          licenseNumber: user.licenseNumber,
+          phone: user.phone,
+          emergencyContact: user.emergencyContact,
           avatar: user.avatar
         },
-        token
+        token,
+        message: 'Account created successfully'
       }
     });
   } catch (error) {
@@ -326,6 +428,7 @@ const logout = (req, res, next) => {
 
 module.exports = {
   syncUser,
+  completeSignup,
   register,
   login,
   getMe,

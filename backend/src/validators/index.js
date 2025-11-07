@@ -25,52 +25,75 @@ const updatePasswordSchema = Joi.object({
 
 // Patient validation schemas
 const createPatientSchema = Joi.object({
-  name: Joi.string().min(2).max(100).required(),
+  firstName: Joi.string().min(1).max(50).required(),
+  lastName: Joi.string().min(1).max(50).required(),
   dateOfBirth: Joi.date().required(),
   gender: Joi.string().valid('male', 'female', 'other').required(),
-  phone: Joi.string().pattern(/^\+?[\d\s\-\(\)]+$/),
-  email: Joi.string().email(),
-  address: Joi.object({
-    street: Joi.string(),
-    city: Joi.string(),
-    state: Joi.string(),
-    zipCode: Joi.string(),
-    country: Joi.string()
-  }),
+  phone: Joi.string().pattern(/^\+?[\d\s\-\(\)]+$/).required(),
+  email: Joi.string().email().optional().allow(''),
+  address: Joi.string().required(),
   emergencyContact: Joi.object({
-    name: Joi.string(),
-    relationship: Joi.string(),
-    phone: Joi.string().pattern(/^\+?[\d\s\-\(\)]+$/)
-  }),
-  medicalHistory: Joi.array().items(Joi.string()),
-  allergies: Joi.array().items(Joi.string()),
-  currentMedications: Joi.array().items(Joi.string()),
+    name: Joi.string().required(),
+    relationship: Joi.string().valid('spouse', 'parent', 'child', 'sibling', 'friend', 'other').required(),
+    phone: Joi.string().pattern(/^\+?[\d\s\-\(\)]+$/).required()
+  }).required(),
+  allergies: Joi.array().items(Joi.object({
+    allergen: Joi.string().required(),
+    severity: Joi.string().valid('mild', 'moderate', 'severe').required(),
+    reaction: Joi.string().required(),
+    notes: Joi.string().allow('').optional()
+  })).default([]),
+  currentMedications: Joi.array().items(Joi.object({
+    name: Joi.string().required(),
+    dosage: Joi.string().required(),
+    frequency: Joi.string().required(),
+    prescribedBy: Joi.string().hex().length(24).required(),
+    status: Joi.string().valid('active', 'discontinued', 'completed').default('active'),
+    notes: Joi.string().allow('').optional()
+  })).default([]),
   assignedDoctor: Joi.string().hex().length(24).required(),
-  assignedNurse: Joi.string().hex().length(24)
-});
+  assignedNurse: Joi.string().hex().length(24).optional().allow(null, ''),
+  roomNumber: Joi.string().optional().allow(null, ''),
+  bedNumber: Joi.string().optional().allow(null, ''),
+  // Remove medicalRecordNumber from validation since it's auto-generated
+  medicalRecordNumber: Joi.string().optional()
+}).options({ stripUnknown: true });
 
 const updatePatientSchema = Joi.object({
-  name: Joi.string().min(2).max(100),
-  phone: Joi.string().pattern(/^\+?[\d\s\-\(\)]+$/),
-  email: Joi.string().email(),
-  address: Joi.object({
-    street: Joi.string(),
-    city: Joi.string(),
-    state: Joi.string(),
-    zipCode: Joi.string(),
-    country: Joi.string()
-  }),
+  firstName: Joi.string().min(2).max(50).required(),
+  lastName: Joi.string().min(2).max(50).required(),
+  phone: Joi.string().pattern(/^\+?[\d\s\-\(\)]+$/).required(),
+  email: Joi.string().email().optional().allow(''),
+  dateOfBirth: Joi.date().required(),
+  gender: Joi.string().valid('male', 'female', 'other').required(),
+  // Address should be a string, not an object - required
+  address: Joi.string().min(1).required(),
   emergencyContact: Joi.object({
-    name: Joi.string(),
-    relationship: Joi.string(),
-    phone: Joi.string().pattern(/^\+?[\d\s\-\(\)]+$/)
-  }),
-  medicalHistory: Joi.array().items(Joi.string()),
-  allergies: Joi.array().items(Joi.string()),
-  currentMedications: Joi.array().items(Joi.string()),
-  assignedDoctor: Joi.string().hex().length(24),
-  assignedNurse: Joi.string().hex().length(24)
-});
+    name: Joi.string().min(1).required(),
+    relationship: Joi.string().min(1).required(),
+    phone: Joi.string().pattern(/^\+?[\d\s\-\(\)]+$/).required()
+  }).required(),
+  // Allergies should be array of objects matching the model
+  allergies: Joi.array().items(Joi.object({
+    allergen: Joi.string().required(),
+    severity: Joi.string().valid('mild', 'moderate', 'severe').default('mild'),
+    reaction: Joi.string().optional().allow(''),
+    notes: Joi.string().optional().allow('')
+  })).optional(),
+  // Current medications should be array of objects matching the model
+  currentMedications: Joi.array().items(Joi.object({
+    name: Joi.string().required(),
+    dosage: Joi.string().optional().allow(''),
+    frequency: Joi.string().optional().allow(''),
+    prescribedBy: Joi.string().hex().length(24).optional(),
+    status: Joi.string().valid('active', 'discontinued', 'completed').default('active'),
+    notes: Joi.string().optional().allow('')
+  })).optional(),
+  // Use assignedDoctor to match the model - required
+  assignedDoctor: Joi.string().hex().length(24).required(),
+  // assignedNurse can be omitted entirely if not provided (don't send empty string)
+  assignedNurse: Joi.string().hex().length(24).optional()
+}).options({ stripUnknown: true });
 
 const addVitalSchema = Joi.object({
   type: Joi.string().valid('blood_pressure', 'heart_rate', 'temperature', 'weight', 'height', 'oxygen_saturation', 'respiratory_rate').required(),
@@ -122,6 +145,28 @@ const createNotificationSchema = Joi.object({
   metadata: Joi.object()
 });
 
+// Auth validation schemas
+const completeSignupSchema = Joi.object({
+  role: Joi.string().valid('admin', 'doctor', 'nurse', 'receptionist', 'lab_technician').required(),
+  specialization: Joi.string().when('role', {
+    is: 'doctor',
+    then: Joi.string().min(2).max(50),
+    otherwise: Joi.string().optional()
+  }),
+  department: Joi.string().min(2).max(50),
+  licenseNumber: Joi.string().when('role', {
+    is: Joi.valid('doctor', 'nurse'),
+    then: Joi.string().min(3).max(20),
+    otherwise: Joi.string().optional()
+  }),
+  phone: Joi.string().pattern(/^\+?[\d\s\-\(\)]+$/),
+  emergencyContact: Joi.object({
+    name: Joi.string().min(2).max(50),
+    relationship: Joi.string().min(2).max(30),
+    phone: Joi.string().pattern(/^\+?[\d\s\-\(\)]+$/)
+  })
+});
+
 // Timeline validation schemas
 const createTimelineEventSchema = Joi.object({
   patientId: Joi.string().hex().length(24).required(),
@@ -135,6 +180,7 @@ module.exports = {
   loginSchema,
   updateDetailsSchema,
   updatePasswordSchema,
+  completeSignupSchema,
   createPatientSchema,
   updatePatientSchema,
   addVitalSchema,

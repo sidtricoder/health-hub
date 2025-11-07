@@ -38,8 +38,51 @@ class ApiService {
     kindeUser: any;
     accessToken: string;
   }) {
-    return this.request<{ success: boolean; data: { user: User; token: string } }>('/auth/sync', {
+    return this.request<{ 
+      success: boolean; 
+      data: { 
+        user: User; 
+        token: string; 
+        isNewUser?: boolean;
+      } | {
+        isNewUser: true;
+        userInfo: {
+          name: string;
+          email: string;
+          kindeId: string;
+        };
+        tempToken: string;
+      }
+    }>('/auth/sync', {
       method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async completeSignup(data: {
+    role: string;
+    specialization?: string;
+    department?: string;
+    licenseNumber?: string;
+    phone?: string;
+    emergencyContact?: {
+      name: string;
+      relationship: string;
+      phone: string;
+    };
+  }) {
+    // For complete-signup we need to send the temporary token (from Kinde sync)
+    const tempToken = localStorage.getItem('tempToken');
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json'
+    };
+    if (tempToken) {
+      headers['Authorization'] = `Bearer ${tempToken}`;
+    }
+
+    return this.request<{ success: boolean; data: { user: User; token: string } }>('/auth/complete-signup', {
+      method: 'POST',
+      headers,
       body: JSON.stringify(data),
     });
   }
@@ -279,6 +322,23 @@ class ApiService {
 
   async getTimelineSummary(patientId: string) {
     return this.request<{ success: boolean; data: any }>(`/timeline/${patientId}/summary`);
+  }
+
+  // User endpoints
+  async getUsersByRole(role: string) {
+    return this.request<{ success: boolean; data: User[] }>(`/users/by-role/${role}`);
+  }
+
+  async getDoctors() {
+    return this.request<{ success: boolean; data: User[] }>('/users/doctors');
+  }
+
+  async getNurses() {
+    return this.request<{ success: boolean; data: User[] }>('/users/nurses');
+  }
+
+  async getStaff() {
+    return this.request<{ success: boolean; data: User[] }>('/users/staff');
   }
 }
 

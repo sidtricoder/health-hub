@@ -27,7 +27,7 @@ const protect = async (req, res, next) => {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
       // Get user from token
-      req.user = await User.findById(decoded.id).select('-password');
+      req.user = await User.findById(decoded.userId).select('-password');
 
       if (!req.user) {
         return next(new AppError('User not found', 401));
@@ -63,8 +63,59 @@ const ownerOrAdmin = (req, res, next) => {
   }
 };
 
+// Authenticate token from Kinde (for API requests)
+const authenticateToken = async (req, res, next) => {
+  try {
+    let token;
+
+    // Check for token in header
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+      token = req.headers.authorization.split(' ')[1];
+    }
+
+    // Check for token in cookies
+    if (!token && req.cookies.token) {
+      token = req.cookies.token;
+    }
+
+    // Make sure token exists
+    if (!token) {
+      return next(new AppError('Not authorized to access this route', 401));
+    }
+
+    try {
+      // Verify token
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+      // Handle temp tokens (for role selection)
+      if (decoded.temp) {
+        req.tempUser = {
+          kindeId: decoded.kindeId,
+          email: decoded.email,
+          name: decoded.name
+        };
+        return next();
+      }
+
+      // Get user from token (regular tokens)
+      req.user = await User.findById(decoded.userId);
+
+      if (!req.user) {
+        return next(new AppError('User not found', 401));
+      }
+
+      next();
+    } catch (err) {
+      return next(new AppError('Not authorized to access this route', 401));
+    }
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   protect,
   authorize,
-  ownerOrAdmin
+  ownerOrAdmin,
+  authenticateToken
 };

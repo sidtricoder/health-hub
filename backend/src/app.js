@@ -10,6 +10,7 @@ const patientRoutes = require('./routes/patients');
 const messageRoutes = require('./routes/messages');
 const notificationRoutes = require('./routes/notifications');
 const timelineRoutes = require('./routes/timeline');
+const userRoutes = require('./routes/users');
 
 // Import middleware
 const { errorHandler } = require('./middleware/errorHandler');
@@ -62,6 +63,7 @@ app.use('/api/patients', patientRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/timeline', timelineRoutes);
+app.use('/api/users', userRoutes);
 
 // Welcome route
 app.get('/', (req, res) => {

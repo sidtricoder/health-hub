@@ -33,7 +33,7 @@ router
 router
   .route('/:id')
   .get(getPatient)
-  .put(authorize('admin', 'doctor', 'nurse'), validate(updatePatientSchema), updatePatient)
+  .put(authorize('admin', 'doctor', 'nurse', 'receptionist'), validate(updatePatientSchema), updatePatient)
   .delete(authorize('admin'), deletePatient);
 
 router

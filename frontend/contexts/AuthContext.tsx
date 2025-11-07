@@ -13,9 +13,22 @@ interface AuthContextType {
   kindeRegister: () => void;
   traditionalLogin: (email: string, password: string) => Promise<void>;
   traditionalRegister: (userData: { name: string; email: string; password: string; role: string }) => Promise<void>;
+  completeSignup: (roleData: {
+    role: string;
+    specialization?: string;
+    department?: string;
+    licenseNumber?: string;
+    phone?: string;
+    emergencyContact?: {
+      name: string;
+      relationship: string;
+      phone: string;
+    };
+  }) => Promise<void>;
   logout: () => void;
   loading: boolean;
   error: string | null;
+  needsRoleSelection: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -24,6 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [needsRoleSelection, setNeedsRoleSelection] = useState(false);
   const router = useRouter();
 
   // Kinde hooks
@@ -69,13 +83,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 accessToken,
               });
 
+              console.log('Sync user response:', response);
+
               if (response.success && response.data) {
-                setUser(response.data.user);
-                // Store token for API requests
-                localStorage.setItem('token', response.data.token);
-                localStorage.setItem('user', JSON.stringify(response.data.user));
-                // Connect to socket
-                socketService.connect(response.data.user.id);
+                console.log('Response data:', response.data);
+                if ('isNewUser' in response.data && response.data.isNewUser) {
+                  // New user needs to select role
+                  console.log('New user detected - redirecting to role selection');
+                  setNeedsRoleSelection(true);
+                  const newUserData = response.data as { isNewUser: true; userInfo: any; tempToken: string };
+                  // Store temporary token separately so regular API calls don't use it
+                  localStorage.setItem('tempToken', newUserData.tempToken);
+                  router.push('/role-selection');
+                } else if ('user' in response.data) {
+                  // Existing user with role
+                  console.log('Existing user detected - logging in');
+                  setUser(response.data.user);
+                  setNeedsRoleSelection(false);
+                  localStorage.setItem('token', response.data.token);
+                  localStorage.setItem('user', JSON.stringify(response.data.user));
+                  socketService.connect();
+                  router.push('/dashboard');
+                }
               }
             } catch (syncError) {
               console.error('Failed to sync user with backend:', syncError);
@@ -86,13 +115,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Check if user has traditional login session
           const token = localStorage.getItem('token');
           const storedUser = localStorage.getItem('user');
+          const tempToken = localStorage.getItem('tempToken');
+
+          // Helper to detect if a JWT is a temp token by decoding payload
+          const isTempJwt = (t: string) : boolean => {
+            try {
+              const payload = JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+              return !!payload && !!payload.temp;
+            } catch (err) {
+              return false;
+            }
+          };
+
+          // If a tempToken exists, ensure we don't accidentally use it as the main token
+          if (tempToken) {
+            // If token equals tempToken, clear it to avoid using temp token for protected API calls
+            if (token === tempToken) {
+              localStorage.removeItem('token');
+            }
+            // In case user is mid-signup, redirect to role selection
+            if (!storedUser) {
+              setNeedsRoleSelection(true);
+              router.push('/role-selection');
+              return;
+            }
+          }
+
+          // Defensive: if token looks like a temp JWT (older clients may have stored it under 'token'),
+          // move it to tempToken and avoid using it as the main token.
+          if (token && !storedUser && isTempJwt(token)) {
+            localStorage.setItem('tempToken', token);
+            localStorage.removeItem('token');
+            setNeedsRoleSelection(true);
+            router.push('/role-selection');
+            return;
+          }
 
           if (token && storedUser) {
             try {
               const parsedUser = JSON.parse(storedUser);
               setUser(parsedUser);
               // Connect to socket
-              socketService.connect(parsedUser.id);
+              socketService.connect();
             } catch (error) {
               console.error('Invalid stored user data');
               localStorage.removeItem('token');
@@ -133,7 +197,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('token', response.data.token);
         localStorage.setItem('user', JSON.stringify(response.data.user));
         // Connect to socket
-        socketService.connect(response.data.user.id);
+        socketService.connect();
         router.push('/dashboard');
       } else {
         throw new Error('Login failed');
@@ -159,7 +223,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.setItem('token', response.data.token);
         localStorage.setItem('user', JSON.stringify(response.data.user));
         // Connect to socket
-        socketService.connect(response.data.user.id);
+        socketService.connect();
         router.push('/dashboard');
       } else {
         throw new Error('Registration failed');
@@ -173,9 +237,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const completeSignup = async (roleData: {
+    role: string;
+    specialization?: string;
+    department?: string;
+    licenseNumber?: string;
+    phone?: string;
+    emergencyContact?: {
+      name: string;
+      relationship: string;
+      phone: string;
+    };
+  }) => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const response = await apiService.completeSignup(roleData);
+
+      if (response.success && response.data) {
+        setUser(response.data.user);
+        setNeedsRoleSelection(false);
+        // store the permanent token under `token`
+        localStorage.setItem('token', response.data.token);
+        // clear temporary token
+        localStorage.removeItem('tempToken');
+        localStorage.setItem('user', JSON.stringify(response.data.user));
+        // Connect to socket
+        socketService.connect();
+        router.push('/dashboard');
+      } else {
+        throw new Error('Role selection failed');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Role selection failed';
+      setError(message);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const logout = () => {
     setUser(null);
     localStorage.removeItem('token');
+    localStorage.removeItem('tempToken');
     localStorage.removeItem('user');
     socketService.disconnect();
     
@@ -193,9 +299,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     kindeRegister,
     traditionalLogin,
     traditionalRegister,
+    completeSignup,
     logout,
     loading: loading || kindeLoading,
     error,
+    needsRoleSelection,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

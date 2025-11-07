@@ -1,9 +1,20 @@
 const mongoose = require('mongoose');
 
 const patientSchema = new mongoose.Schema({
+  firstName: {
+    type: String,
+    required: [true, 'Please add first name'],
+    trim: true,
+    maxlength: [50, 'First name cannot be more than 50 characters']
+  },
+  lastName: {
+    type: String,
+    required: [true, 'Please add last name'],
+    trim: true,
+    maxlength: [50, 'Last name cannot be more than 50 characters']
+  },
   name: {
     type: String,
-    required: [true, 'Please add a name'],
     trim: true,
     maxlength: [100, 'Name cannot be more than 100 characters']
   },
@@ -36,7 +47,6 @@ const patientSchema = new mongoose.Schema({
   },
   medicalRecordNumber: {
     type: String,
-    required: [true, 'Please add medical record number'],
     unique: true,
     uppercase: true
   },
@@ -186,6 +196,25 @@ const patientSchema = new mongoose.Schema({
   timestamps: true,
   toJSON: { virtuals: true },
   toObject: { virtuals: true }
+});
+
+// Pre-save middleware to auto-generate medical record number and combine names
+patientSchema.pre('save', async function(next) {
+  // Combine firstName and lastName into name
+  if (this.firstName && this.lastName) {
+    this.name = `${this.firstName} ${this.lastName}`;
+  } else if (this.firstName) {
+    this.name = this.firstName;
+  }
+  
+  // Generate medical record number if not provided
+  if (!this.medicalRecordNumber) {
+    const year = new Date().getFullYear();
+    const count = await this.constructor.countDocuments({});
+    this.medicalRecordNumber = `MR${year}${String(count + 1).padStart(4, '0')}`;
+  }
+  
+  next();
 });
 
 // Virtual for age
