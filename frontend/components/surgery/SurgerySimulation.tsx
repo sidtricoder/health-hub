@@ -4,7 +4,7 @@ import React, { useRef, useEffect, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { Stats, Environment } from '@react-three/drei';
 import { Physics } from '@react-three/cannon';
-import { Vector3 } from 'three';
+import { Vector3, Euler, Quaternion } from 'three';
 import { SurgicalScene } from './SurgicalScene';
 import { SurgeryUI } from './components/SurgeryUI';
 import { CollaborationManager } from './CollaborationManager';
@@ -12,6 +12,7 @@ import { EnhancedToolCursor, useToolCursor } from './components/EnhancedToolCurs
 import { EnhancedCameraControls } from './components/EnhancedCameraControls';
 import { EnhancedOperatingRoom } from './components/EnhancedOperatingRoom';
 import { CollaborativeCursors, useCursorBroadcast } from './components/CollaborativeCursors';
+import { RealtimeToolSync, useToolPositionBroadcast } from './components/RealtimeToolSync';
 import { useSocket } from '../../contexts/SocketContext';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -69,6 +70,8 @@ export function SurgerySimulation({ sessionId, userId, userRole = 'doctor', isHo
 
   const [selectedTool, setSelectedTool] = useState<string | null>('scalpel');
   const [cursorPosition, setCursorPosition] = useState(new Vector3(0, 1, 0));
+  const [toolRotation, setToolRotation] = useState(new Euler(0, 0, 0));
+  const [toolQuaternion, setToolQuaternion] = useState(new Quaternion());
   const [showStats, setShowStats] = useState(false);
   const [startTime, setStartTime] = useState<Date | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -205,6 +208,19 @@ export function SurgerySimulation({ sessionId, userId, userRole = 'doctor', isHo
     selectedTool,
     cursorPosition,
     isDragging
+  );
+
+  // Broadcast tool position to other doctors in real-time
+  useToolPositionBroadcast(
+    socket,
+    sessionId,
+    userId,
+    userName,
+    selectedTool,
+    cursorPosition,
+    toolRotation,
+    toolQuaternion,
+    isDragging || simulationState.status === 'active'
   );
 
   const handleToolSelect = (toolType: string) => {
@@ -433,6 +449,14 @@ export function SurgerySimulation({ sessionId, userId, userRole = 'doctor', isHo
             socket={socket}
             sessionId={sessionId}
             onRemoteInteraction={handleRemoteInteraction}
+          />
+
+          {/* Real-time Tool Sync - Show other doctors' tools in 3D */}
+          <RealtimeToolSync
+            socket={socket}
+            sessionId={sessionId}
+            currentUserId={userId}
+            participants={simulationState.participants}
           />
         </Physics>
 

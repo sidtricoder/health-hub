@@ -2,6 +2,264 @@ const Simulation = require('../models/Simulation');
 const User = require('../models/User');
 const { validationResult } = require('express-validator');
 
+// Create a new simulation session (for live collaboration)
+const createSimulationSession = async (req, res) => {
+  try {
+    const {
+      title,
+      description,
+      scenario,
+      maxParticipants,
+      inviteOnly
+    } = req.body;
+
+    // Get authenticated user from protect middleware
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required. Only doctors can create simulation sessions.'
+      });
+    }
+
+    const userId = req.user._id ? req.user._id.toString() : req.user.kindeId || req.user.id;
+    const userName = req.user.name || 'Unknown User';
+
+    // Generate unique session ID
+    const sessionId = `session_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+
+    // Create new simulation session
+    const simulation = new Simulation({
+      sessionId,
+      userId,
+      creatorId: userId,
+      title: title || `Surgery Simulation - ${new Date().toLocaleDateString()}`,
+      description: description || '',
+      scenario: scenario || 'basic-procedure',
+      maxParticipants: maxParticipants || 6,
+      inviteOnly: inviteOnly || false,
+      duration: 0,
+      score: 0,
+      errors: 0,
+      participantCount: 1,
+      toolsUsed: [],
+      simulationType: 'custom',
+      status: 'idle',
+      isCompleted: false,
+      collaborativeData: {
+        participants: [{
+          userId,
+          name: userName,
+          role: 'surgeon',
+          joinedAt: new Date()
+        }],
+        totalMessages: 0,
+        voiceTime: 0
+      }
+    });
+
+    const savedSimulation = await simulation.save();
+
+    // Generate full shareable link
+    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const shareableLink = `${baseUrl}/surgery-simulation?link=${savedSimulation.uniqueLink}`;
+    const shareableCodeLink = `${baseUrl}/surgery-simulation?code=${savedSimulation.shareableCode}`;
+
+    res.status(201).json({
+      success: true,
+      message: 'Simulation session created successfully',
+      data: {
+        ...savedSimulation.toObject(),
+        shareableLink,
+        shareableCodeLink
+      }
+    });
+
+  } catch (error) {
+    console.error('Error creating simulation session:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create simulation session',
+      error: error.message
+    });
+  }
+};
+
+// Join a simulation session via link or code
+const joinSimulationSession = async (req, res) => {
+  try {
+    const { identifier } = req.params; // Can be uniqueLink or shareableCode
+    
+    console.log('Join session - received identifier:', identifier);
+    console.log('Join session - params:', req.params);
+    
+    // Get authenticated user
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required to join simulation session.'
+      });
+    }
+
+    const userId = req.user._id ? req.user._id.toString() : req.user.kindeId || req.user.id;
+    const userName = req.user.name || 'Unknown User';
+
+    // Find simulation by link or code
+    const simulation = await Simulation.findByLinkOrCode(identifier);
+
+    if (!simulation) {
+      return res.status(404).json({
+        success: false,
+        message: 'Simulation session not found'
+      });
+    }
+
+    // Check if simulation is completed
+    if (simulation.status === 'completed' || simulation.isCompleted) {
+      return res.status(400).json({
+        success: false,
+        message: 'This simulation session has already been completed'
+      });
+    }
+
+    // Check if user is already a participant
+    const isParticipant = simulation.collaborativeData.participants.some(
+      p => p.userId?.toString() === userId.toString()
+    );
+
+    if (!isParticipant) {
+      // Check max participants
+      if (simulation.collaborativeData.participants.length >= simulation.maxParticipants) {
+        return res.status(400).json({
+          success: false,
+          message: 'This simulation session is full'
+        });
+      }
+
+      // Add user as participant
+      simulation.collaborativeData.participants.push({
+        userId,
+        name: userName,
+        role: 'assistant',
+        joinedAt: new Date()
+      });
+
+      simulation.participantCount = simulation.collaborativeData.participants.length;
+      await simulation.save();
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Successfully joined simulation session',
+      data: simulation
+    });
+
+  } catch (error) {
+    console.error('Error joining simulation session:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to join simulation session',
+      error: error.message
+    });
+  }
+};
+
+// Get simulation by link or code (for viewing before joining)
+const getSimulationByLink = async (req, res) => {
+  try {
+    const { identifier } = req.params;
+
+    const simulation = await Simulation.findByLinkOrCode(identifier);
+
+    if (!simulation) {
+      return res.status(404).json({
+        success: false,
+        message: 'Simulation session not found'
+      });
+    }
+
+    // Don't send full details if invite only and user not participant
+    const userId = req.user?.id;
+    const isParticipant = simulation.collaborativeData.participants.some(
+      p => p.userId && p.userId.toString() === userId
+    );
+
+    if (simulation.inviteOnly && !isParticipant) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          _id: simulation._id,
+          title: simulation.title,
+          description: simulation.description,
+          scenario: simulation.scenario,
+          creatorId: simulation.creatorId,
+          participantCount: simulation.participantCount,
+          maxParticipants: simulation.maxParticipants,
+          status: simulation.status,
+          inviteOnly: simulation.inviteOnly
+        }
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: simulation
+    });
+
+  } catch (error) {
+    console.error('Error fetching simulation by link:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch simulation session',
+      error: error.message
+    });
+  }
+};
+
+// Get active simulation sessions
+const getActiveSessions = async (req, res) => {
+  try {
+    const { page = 1, limit = 10, scenario, status = 'idle,active' } = req.query;
+
+    const filter = {
+      isCompleted: false,
+      status: { $in: status.split(',') },
+      inviteOnly: false
+    };
+
+    if (scenario) {
+      filter.scenario = scenario;
+    }
+
+    const simulations = await Simulation.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit));
+
+    const total = await Simulation.countDocuments(filter);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        simulations,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total,
+          pages: Math.ceil(total / parseInt(limit))
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching active sessions:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch active sessions',
+      error: error.message
+    });
+  }
+};
+
 // Create a new simulation
 const createSimulation = async (req, res) => {
   try {
@@ -48,9 +306,6 @@ const createSimulation = async (req, res) => {
 
     const savedSimulation = await simulation.save();
 
-    // Populate user information
-    await savedSimulation.populate('userId', 'name email role');
-
     res.status(201).json({
       success: true,
       message: 'Simulation saved successfully',
@@ -76,21 +331,24 @@ const getUserSimulations = async (req, res) => {
     const filter = { userId };
     if (status) filter.status = status;
 
-    const options = {
-      page: parseInt(page),
-      limit: parseInt(limit),
-      sort: { [sortBy]: sortOrder === 'desc' ? -1 : 1 },
-      populate: {
-        path: 'userId',
-        select: 'name email role'
-      }
-    };
+    const simulations = await Simulation.find(filter)
+      .sort({ [sortBy]: sortOrder === 'desc' ? -1 : 1 })
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit));
 
-    const simulations = await Simulation.paginate(filter, options);
+    const total = await Simulation.countDocuments(filter);
 
     res.status(200).json({
       success: true,
-      data: simulations
+      data: {
+        simulations,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total,
+          pages: Math.ceil(total / parseInt(limit))
+        }
+      }
     });
 
   } catch (error) {
@@ -108,9 +366,7 @@ const getSimulation = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const simulation = await Simulation.findById(id)
-      .populate('userId', 'name email role')
-      .populate('collaborativeData.participants.userId', 'name email role');
+    const simulation = await Simulation.findById(id);
 
     if (!simulation) {
       return res.status(404).json({
@@ -149,7 +405,7 @@ const updateSimulation = async (req, res) => {
       id,
       { $set: updates },
       { new: true, runValidators: true }
-    ).populate('userId', 'name email role');
+    );
 
     if (!simulation) {
       return res.status(404).json({
@@ -318,6 +574,10 @@ const addCut = async (req, res) => {
 };
 
 module.exports = {
+  createSimulationSession,
+  joinSimulationSession,
+  getSimulationByLink,
+  getActiveSessions,
   createSimulation,
   getUserSimulations,
   getSimulation,

@@ -3,10 +3,12 @@ const Notification = require('../models/Notification');
 const Patient = require('../models/Patient');
 const TimelineEvent = require('../models/TimelineEvent');
 const User = require('../models/User');
+const Simulation = require('../models/Simulation');
 const logger = require('../utils/logger');
 
 const activeUsers = new Map(); // userId -> { socketId, joinedAt, lastActivity, patientRooms }
 const patientRooms = new Map(); // patientId -> Set of userIds
+const surgerySessionUsers = new Map(); // sessionId -> Map of userId -> { socketId, userName, role }
 
 const initializeSocket = (io) => {
   io.on('connection', (socket) => {
@@ -390,20 +392,59 @@ const initializeSocket = (io) => {
       try {
         const { sessionId, userId, userName, role } = data;
         
+        // Join socket room
         socket.join(`surgery:${sessionId}`);
         
-        // Add user to session participants
+        // Track user in surgery session
+        if (!surgerySessionUsers.has(sessionId)) {
+          surgerySessionUsers.set(sessionId, new Map());
+        }
+        
+        surgerySessionUsers.get(sessionId).set(userId, {
+          socketId: socket.id,
+          userName: userName || 'Unknown',
+          role: role || 'assistant'
+        });
+        
+        // Update simulation in database
+        const simulation = await Simulation.findOne({ sessionId });
+        if (simulation) {
+          // Check if user is already a participant
+          const existingParticipant = simulation.collaborativeData.participants.find(
+            p => p.userId.toString() === userId
+          );
+          
+          if (!existingParticipant) {
+            simulation.collaborativeData.participants.push({
+              userId,
+              name: userName,
+              role: role || 'assistant',
+              joinedAt: new Date()
+            });
+            simulation.participantCount = simulation.collaborativeData.participants.length;
+            await simulation.save();
+          }
+          
+          // Send current participants list to all users in session
+          const participants = simulation.collaborativeData.participants.map(p => ({
+            id: p.userId,
+            name: p.name,
+            role: p.role,
+            status: surgerySessionUsers.get(sessionId)?.has(p.userId.toString()) ? 'active' : 'idle',
+            joinedAt: p.joinedAt
+          }));
+          
+          io.to(`surgery:${sessionId}`).emit('surgery:participants-update', participants);
+        }
+        
+        // Notify others that user joined
         socket.to(`surgery:${sessionId}`).emit('surgery:participant-joined', {
           id: userId,
           name: userName,
-          role: role,
+          role: role || 'assistant',
           status: 'active',
           joinedAt: new Date()
         });
-
-        // Send current participants list to new user
-        const participants = await getUsersInSurgerySession(sessionId);
-        socket.emit('surgery:participants-update', participants);
 
         logger.info(`User ${userId} joined surgery session ${sessionId}`);
       } catch (error) {
@@ -416,7 +457,30 @@ const initializeSocket = (io) => {
       try {
         const { sessionId, userId } = data;
         
+        // Leave socket room
         socket.leave(`surgery:${sessionId}`);
+        
+        // Remove from tracking
+        if (surgerySessionUsers.has(sessionId)) {
+          surgerySessionUsers.get(sessionId).delete(userId);
+          if (surgerySessionUsers.get(sessionId).size === 0) {
+            surgerySessionUsers.delete(sessionId);
+          }
+        }
+        
+        // Update simulation in database
+        const simulation = await Simulation.findOne({ sessionId });
+        if (simulation) {
+          const participant = simulation.collaborativeData.participants.find(
+            p => p.userId.toString() === userId
+          );
+          if (participant) {
+            participant.leftAt = new Date();
+          }
+          await simulation.save();
+        }
+        
+        // Notify others
         socket.to(`surgery:${sessionId}`).emit('surgery:participant-left', { id: userId });
 
         logger.info(`User ${userId} left surgery session ${sessionId}`);
@@ -429,10 +493,25 @@ const initializeSocket = (io) => {
       try {
         const { sessionId, action, status } = data;
         
+        // Update simulation status in database
+        const simulation = await Simulation.findOne({ sessionId });
+        if (simulation) {
+          simulation.status = status;
+          
+          if (action === 'start' && simulation.status !== 'active') {
+            simulation.status = 'active';
+          } else if (action === 'stop') {
+            simulation.status = 'completed';
+            simulation.isCompleted = true;
+          }
+          
+          await simulation.save();
+        }
+        
         // Broadcast simulation state change to all participants
-        io.to(`surgery:${sessionId}`).emit('surgery:simulation-state-changed', {
+        io.to(`surgery:${sessionId}`).emit('surgery:state-update', {
+          status: simulation.status,
           action,
-          status,
           timestamp: new Date()
         });
 
@@ -442,42 +521,108 @@ const initializeSocket = (io) => {
       }
     });
 
-    socket.on('surgery:tool-interaction', async (data) => {
+    socket.on('surgery:tool-select', async (data) => {
       try {
-        const { sessionId, userId, toolType, position, force, timestamp } = data;
+        const { sessionId, userId, userName, toolType } = data;
+        
+        // Broadcast tool selection to other participants
+        socket.to(`surgery:${sessionId}`).emit('surgery:tool-selected', {
+          userId,
+          userName,
+          toolType,
+          timestamp: new Date()
+        });
+
+        logger.info(`User ${userId} selected tool ${toolType} in session ${sessionId}`);
+      } catch (error) {
+        logger.error('Error handling tool selection:', error);
+      }
+    });
+
+    socket.on('surgery:tool-interact', async (data) => {
+      try {
+        const { sessionId, userId, toolId, position, rotation } = data;
         
         // Broadcast tool interaction to other participants
         socket.to(`surgery:${sessionId}`).emit('surgery:tool-update', {
           userId,
-          toolType,
+          toolId,
           position,
-          force,
-          timestamp
+          rotation,
+          timestamp: new Date()
         });
 
-        logger.info(`Tool interaction by ${userId} in session ${sessionId}: ${toolType}`);
+        logger.info(`Tool interaction by ${userId} in session ${sessionId}`);
       } catch (error) {
         logger.error('Error handling tool interaction:', error);
       }
     });
 
-    socket.on('surgery:tissue-interaction', async (data) => {
+    // Real-time tool position streaming (high-frequency updates)
+    socket.on('surgery:tool-position', (data) => {
       try {
-        const { sessionId, userId, position, toolType, force, deformation } = data;
+        const { sessionId, userId, userName, toolType, position, rotation, quaternion } = data;
+        
+        // Instantly broadcast to all other participants (no database write)
+        socket.to(`surgery:${sessionId}`).emit('surgery:tool-position', {
+          userId,
+          userName,
+          toolType,
+          position,
+          rotation,
+          quaternion,
+          timestamp: Date.now()
+        });
+      } catch (error) {
+        logger.error('Error broadcasting tool position:', error);
+      }
+    });
+
+    socket.on('surgery:tissue-interact', async (data) => {
+      try {
+        const { sessionId, userId, userName, point, toolType, force } = data;
+        
+        // Update simulation with tissue interaction
+        const simulation = await Simulation.findOne({ sessionId });
+        if (simulation && point && Array.isArray(point)) {
+          await simulation.addTissueInteraction(
+            toolType,
+            { x: point[0], y: point[1], z: point[2] },
+            force
+          );
+        }
         
         // Broadcast tissue interaction to other participants
         socket.to(`surgery:${sessionId}`).emit('surgery:tissue-update', {
           userId,
-          position,
+          userName,
+          position: point,
           toolType,
           force,
-          deformation,
           timestamp: new Date()
         });
 
         logger.info(`Tissue interaction by ${userId} in session ${sessionId}`);
       } catch (error) {
         logger.error('Error handling tissue interaction:', error);
+      }
+    });
+
+    socket.on('surgery:cursor-update', async (data) => {
+      try {
+        const { sessionId, userId, userName, selectedTool, position, isActive } = data;
+        
+        // Broadcast cursor position to other participants
+        socket.to(`surgery:${sessionId}`).emit('surgery:cursor-position', {
+          userId,
+          userName,
+          selectedTool,
+          position,
+          isActive,
+          timestamp: new Date()
+        });
+      } catch (error) {
+        logger.error('Error handling cursor update:', error);
       }
     });
 
@@ -500,6 +645,33 @@ const initializeSocket = (io) => {
         logger.info(`Chat message in session ${sessionId} by ${userName}: ${message}`);
       } catch (error) {
         logger.error('Error handling surgery chat:', error);
+      }
+    });
+
+    socket.on('surgery:reset-simulation', async (data) => {
+      try {
+        const { sessionId } = data;
+        
+        // Reset simulation state
+        const simulation = await Simulation.findOne({ sessionId });
+        if (simulation) {
+          simulation.status = 'idle';
+          simulation.duration = 0;
+          simulation.score = 0;
+          simulation.errors = 0;
+          simulation.tissueInteractions = [];
+          simulation.cuts = [];
+          await simulation.save();
+        }
+        
+        // Broadcast reset to all participants
+        io.to(`surgery:${sessionId}`).emit('surgery:simulation-reset', {
+          timestamp: new Date()
+        });
+
+        logger.info(`Simulation reset in session ${sessionId}`);
+      } catch (error) {
+        logger.error('Error resetting simulation:', error);
       }
     });
 
@@ -531,6 +703,18 @@ const initializeSocket = (io) => {
               }
             }
           });
+        }
+        
+        // Clean up surgery sessions
+        for (const [sessionId, users] of surgerySessionUsers.entries()) {
+          if (users.has(userId)) {
+            users.delete(userId);
+            socket.to(`surgery:${sessionId}`).emit('surgery:participant-left', { id: userId });
+            
+            if (users.size === 0) {
+              surgerySessionUsers.delete(sessionId);
+            }
+          }
         }
 
         // Remove from active users
@@ -583,9 +767,23 @@ const getUsersInPatientRoom = (patientId) => {
 };
 
 const getUsersInSurgerySession = async (sessionId) => {
-  // This would typically query a database for active session participants
-  // For now, return empty array - implement based on your session storage
-  return [];
+  try {
+    const simulation = await Simulation.findOne({ sessionId })
+      .populate('collaborativeData.participants.userId', 'name email role');
+    
+    if (!simulation) return [];
+    
+    return simulation.collaborativeData.participants.map(p => ({
+      id: p.userId._id,
+      name: p.name,
+      role: p.role,
+      status: surgerySessionUsers.get(sessionId)?.has(p.userId._id.toString()) ? 'active' : 'idle',
+      joinedAt: p.joinedAt
+    }));
+  } catch (error) {
+    logger.error('Error fetching surgery session users:', error);
+    return [];
+  }
 };
 
 module.exports = { 

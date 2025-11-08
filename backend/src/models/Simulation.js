@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const crypto = require('crypto');
 
 const SimulationSchema = new mongoose.Schema({
   sessionId: {
@@ -6,10 +7,27 @@ const SimulationSchema = new mongoose.Schema({
     required: true,
     index: true
   },
+  uniqueLink: {
+    type: String,
+    unique: true,
+    index: true
+    // Note: Not required here because pre-save hook will generate it
+  },
+  shareableCode: {
+    type: String,
+    unique: true,
+    sparse: true,
+    index: true
+  },
   userId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
+    type: String, // Changed to String to support Kinde IDs (e.g., kp_...)
+    required: true,
+    index: true
+  },
+  creatorId: {
+    type: String, // Changed to String to support Kinde IDs
+    required: true,
+    index: true
   },
   title: {
     type: String,
@@ -18,6 +36,21 @@ const SimulationSchema = new mongoose.Schema({
   description: {
     type: String,
     default: ''
+  },
+  scenario: {
+    type: String,
+    enum: ['basic-procedure', 'appendectomy', 'cardiac-surgery', 'neurosurgery', 'trauma-surgery', 'laparoscopic'],
+    default: 'basic-procedure'
+  },
+  maxParticipants: {
+    type: Number,
+    default: 6,
+    min: 1,
+    max: 20
+  },
+  inviteOnly: {
+    type: Boolean,
+    default: false
   },
   duration: {
     type: Number,
@@ -73,7 +106,7 @@ const SimulationSchema = new mongoose.Schema({
   collaborativeData: {
     participants: [{
       userId: {
-        type: mongoose.Schema.Types.ObjectId,
+        type: String, // Changed to String to support Kinde IDs
         ref: 'User'
       },
       name: String,
@@ -248,5 +281,78 @@ SimulationSchema.statics.getLeaderboard = function(limit = 10) {
     }
   ]);
 };
+
+// Static method to generate unique link
+SimulationSchema.statics.generateUniqueLink = function() {
+  return crypto.randomBytes(16).toString('hex');
+};
+
+// Static method to generate shareable code
+SimulationSchema.statics.generateShareableCode = function() {
+  const characters = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Removed confusing characters
+  let code = '';
+  for (let i = 0; i < 8; i++) {
+    code += characters.charAt(Math.floor(Math.random() * characters.length));
+  }
+  return code;
+};
+
+// Static method to find simulation by link or code
+SimulationSchema.statics.findByLinkOrCode = function(identifier) {
+  return this.findOne({
+    $or: [
+      { uniqueLink: identifier },
+      { shareableCode: identifier }
+    ]
+  });
+};
+
+// Pre-save middleware to generate unique identifiers
+SimulationSchema.pre('save', async function(next) {
+  if (this.isNew) {
+    // Generate unique link if not provided
+    if (!this.uniqueLink) {
+      let uniqueLink;
+      let isUnique = false;
+      
+      while (!isUnique) {
+        uniqueLink = crypto.randomBytes(16).toString('hex');
+        const existing = await this.constructor.findOne({ uniqueLink });
+        if (!existing) {
+          isUnique = true;
+        }
+      }
+      
+      this.uniqueLink = uniqueLink;
+    }
+    
+    // Generate shareable code if not provided
+    if (!this.shareableCode) {
+      let shareableCode;
+      let isUnique = false;
+      const characters = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      
+      while (!isUnique) {
+        shareableCode = '';
+        for (let i = 0; i < 8; i++) {
+          shareableCode += characters.charAt(Math.floor(Math.random() * characters.length));
+        }
+        const existing = await this.constructor.findOne({ shareableCode });
+        if (!existing) {
+          isUnique = true;
+        }
+      }
+      
+      this.shareableCode = shareableCode;
+    }
+    
+    // Set creatorId if not set
+    if (!this.creatorId) {
+      this.creatorId = this.userId;
+    }
+  }
+  
+  next();
+});
 
 module.exports = mongoose.model('Simulation', SimulationSchema);

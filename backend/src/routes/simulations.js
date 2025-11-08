@@ -2,6 +2,10 @@ const express = require('express');
 const router = express.Router();
 const { body, param, query, validationResult } = require('express-validator');
 const {
+  createSimulationSession,
+  joinSimulationSession,
+  getSimulationByLink,
+  getActiveSessions,
   createSimulation,
   getUserSimulations,
   getSimulation,
@@ -12,7 +16,7 @@ const {
   addTissueInteraction,
   addCut
 } = require('../controllers/simulationController');
-const { protect } = require('../middleware/auth');
+const { protect, authorize } = require('../middleware/auth');
 
 // Validation error handler middleware
 const handleValidationErrors = (req, res, next) => {
@@ -28,6 +32,14 @@ const handleValidationErrors = (req, res, next) => {
 };
 
 // Validation middleware
+const createSessionValidation = [
+  body('title').optional().isString().withMessage('Title must be a string'),
+  body('description').optional().isString().withMessage('Description must be a string'),
+  body('scenario').optional().isIn(['basic-procedure', 'appendectomy', 'cardiac-surgery', 'neurosurgery', 'trauma-surgery', 'laparoscopic']).withMessage('Invalid scenario'),
+  body('maxParticipants').optional().isInt({ min: 1, max: 20 }).withMessage('Max participants must be between 1 and 20'),
+  body('inviteOnly').optional().isBoolean().withMessage('inviteOnly must be a boolean')
+];
+
 const createSimulationValidation = [
   body('sessionId').isString().notEmpty().withMessage('Session ID is required'),
   body('userId').isMongoId().withMessage('Valid user ID is required'),
@@ -69,7 +81,19 @@ const cutValidation = [
 
 // Routes
 
-// Create a new simulation
+// Create a new simulation session (for live collaboration) - ONLY DOCTORS
+router.post('/sessions', protect, authorize('doctor', 'admin'), ...createSessionValidation, handleValidationErrors, createSimulationSession);
+
+// Get active simulation sessions (public)
+router.get('/sessions/active', getActiveSessions);
+
+// Get simulation by link or code (public endpoint for viewing)
+router.get('/sessions/link/:identifier', getSimulationByLink);
+
+// Join simulation session via link or code - Requires authentication
+router.post('/sessions/join/:identifier', protect, joinSimulationSession);
+
+// Create a new simulation (for saving completed simulations)
 router.post('/', protect, ...createSimulationValidation, handleValidationErrors, createSimulation);
 
 // Get simulations for a user
