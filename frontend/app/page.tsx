@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 
 export default function Home() {
-  const { user, loading } = useAuth();
+  const { user, loading, kindeLogin } = useAuth();
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
 
@@ -41,6 +41,10 @@ export default function Home() {
       router.push('/dashboard');
     }
   }, [user, loading, router]);
+
+  const handleKindeLogin = () => {
+    kindeLogin();
+  };
 
   if (!mounted || loading) {
     return (
@@ -121,21 +125,32 @@ export default function Home() {
     <div className="min-h-screen bg-gradient-to-br from-sky-50 via-white to-red-50">
       {/* Hero Section */}
       <header className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-r from-sky-500/5 to-red-500/5"></div>
+        {/* Background Video */}
+        <div className="absolute inset-0 w-full h-full">
+          <video
+            autoPlay
+            loop
+            muted
+            playsInline
+            className="w-full h-full object-cover"
+          >
+            <source src="/bg-video.mp4" type="video/mp4" />
+          </video>
+          {/* Dark overlay for better text readability */}
+          <div className="absolute inset-0 bg-gradient-to-r from-sky-900/70 via-sky-800/60 to-red-900/70"></div>
+        </div>
+        
         <nav className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex justify-between items-center">
             <div className="flex items-center space-x-2">
-              <Stethoscope className="h-8 w-8 text-red-600" />
-              <span className="text-2xl font-bold bg-gradient-to-r from-sky-600 to-red-600 bg-clip-text text-transparent">
+              <Stethoscope className="h-8 w-8 text-gray-900 drop-shadow-lg" />
+              <span className="text-2xl font-bold text-gray-900 drop-shadow-lg">
                 Health Hub EMR
               </span>
-              <Badge variant="outline" className="ml-2 border-sky-300 text-sky-700">
-                v2.0.0
-              </Badge>
             </div>
             <Button 
-              onClick={() => router.push('/login')}
-              className="bg-gradient-to-r from-sky-600 to-sky-700 hover:from-sky-700 hover:to-sky-800 text-white shadow-lg"
+              onClick={handleKindeLogin}
+              className="bg-red-600 hover:bg-red-700 text-white shadow-lg"
             >
               Get Started
               <ArrowRight className="ml-2 h-4 w-4" />
@@ -146,38 +161,30 @@ export default function Home() {
         <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 md:py-32">
           <div className="text-center">
             <div className="flex justify-center mb-6">
-              <Badge className="bg-sky-100 text-sky-800 hover:bg-sky-200 border-0 px-4 py-1.5">
+              <Badge className="bg-white/90 text-gray-900 hover:bg-white border-0 px-4 py-1.5 backdrop-blur-md">
                 <Sparkles className="h-3 w-3 mr-1" />
                 Next Generation Healthcare Platform
               </Badge>
             </div>
-            <h1 className="text-5xl md:text-7xl font-bold text-gray-900 mb-6 leading-tight">
+            <h1 className="text-5xl md:text-7xl font-bold text-gray-900 mb-6 leading-tight drop-shadow-2xl">
               Transform Healthcare
               <br />
-              <span className="bg-gradient-to-r from-sky-600 to-red-500 bg-clip-text text-transparent">
+              <span className="bg-gradient-to-r from-red-600 to-sky-600 bg-clip-text text-transparent">
                 With Smart EMR
               </span>
             </h1>
-            <p className="text-xl md:text-2xl text-gray-600 mb-8 max-w-3xl mx-auto">
+            <p className="text-xl md:text-2xl text-white/90 mb-8 max-w-3xl mx-auto drop-shadow-lg">
               A comprehensive Electronic Medical Records system with real-time collaboration, 
               3D surgery simulation, and intelligent patient management.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
               <Button 
                 size="lg"
-                onClick={() => router.push('/login')}
-                className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white shadow-xl text-lg px-8 py-6"
+                onClick={handleKindeLogin}
+                className="bg-red-600 hover:bg-red-700 text-white shadow-xl text-lg px-8 py-6"
               >
-                Start Free Trial
+                Start now
                 <ArrowRight className="ml-2 h-5 w-5" />
-              </Button>
-              <Button 
-                size="lg"
-                variant="outline"
-                onClick={() => document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' })}
-                className="border-2 border-sky-300 hover:bg-sky-50 hover:border-sky-400 text-sky-700 text-lg px-8 py-6"
-              >
-                Explore Features
               </Button>
             </div>
 
@@ -185,11 +192,11 @@ export default function Home() {
             <div className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-8">
               {stats.map((stat, index) => (
                 <div key={index} className="text-center">
-                  <div className="inline-flex items-center justify-center w-12 h-12 bg-gradient-to-br from-sky-100 to-red-100 rounded-xl mb-2">
+                  <div className="inline-flex items-center justify-center w-12 h-12 bg-white/90 backdrop-blur-md rounded-xl mb-2">
                     <stat.icon className="h-6 w-6 text-red-600" />
                   </div>
-                  <div className="text-3xl font-bold text-gray-900">{stat.value}</div>
-                  <div className="text-sm text-gray-600">{stat.label}</div>
+                  <div className="text-3xl font-bold text-gray-900 drop-shadow-lg">{stat.value}</div>
+                  <div className="text-sm text-gray-800">{stat.label}</div>
                 </div>
               ))}
             </div>
@@ -274,7 +281,6 @@ export default function Home() {
                 {[
                   'Real-time multi-user collaboration',
                   '6 realistic surgical tools (Scalpel, Forceps, Suture, etc.)',
-                  'Advanced physics engine for realistic tissue interaction',
                   'Shareable sessions with unique codes',
                   'Desktop and mobile support',
                   'Professional surgical environment'
@@ -287,7 +293,7 @@ export default function Home() {
               </div>
               <Button 
                 size="lg"
-                onClick={() => router.push('/login')}
+                onClick={handleKindeLogin}
                 className="bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white shadow-lg"
               >
                 Try Surgery Simulation
@@ -404,18 +410,11 @@ export default function Home() {
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Button 
               size="lg"
-              onClick={() => router.push('/login')}
+              onClick={handleKindeLogin}
               className="bg-white hover:bg-gray-100 text-red-600 shadow-xl text-lg px-8 py-6"
             >
               Get Started Now
               <ArrowRight className="ml-2 h-5 w-5" />
-            </Button>
-            <Button 
-              size="lg"
-              variant="outline"
-              className="border-2 border-white text-white hover:bg-white/10 text-lg px-8 py-6"
-            >
-              Schedule Demo
             </Button>
           </div>
         </div>

@@ -180,9 +180,6 @@ export default function DashboardPage() {
                   Health Hub EMR
                 </h1>
               </div>
-              <Badge variant="outline" className="text-xs">
-                v2.0.0
-              </Badge>
             </div>
             <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-2">
