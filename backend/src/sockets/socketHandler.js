@@ -385,6 +385,124 @@ const initializeSocket = (io) => {
       }
     });
 
+    // Surgery Simulation Events
+    socket.on('surgery:join-session', async (data) => {
+      try {
+        const { sessionId, userId, userName, role } = data;
+        
+        socket.join(`surgery:${sessionId}`);
+        
+        // Add user to session participants
+        socket.to(`surgery:${sessionId}`).emit('surgery:participant-joined', {
+          id: userId,
+          name: userName,
+          role: role,
+          status: 'active',
+          joinedAt: new Date()
+        });
+
+        // Send current participants list to new user
+        const participants = await getUsersInSurgerySession(sessionId);
+        socket.emit('surgery:participants-update', participants);
+
+        logger.info(`User ${userId} joined surgery session ${sessionId}`);
+      } catch (error) {
+        logger.error('Error joining surgery session:', error);
+        socket.emit('surgery:error', { message: 'Failed to join surgery session' });
+      }
+    });
+
+    socket.on('surgery:leave-session', async (data) => {
+      try {
+        const { sessionId, userId } = data;
+        
+        socket.leave(`surgery:${sessionId}`);
+        socket.to(`surgery:${sessionId}`).emit('surgery:participant-left', { id: userId });
+
+        logger.info(`User ${userId} left surgery session ${sessionId}`);
+      } catch (error) {
+        logger.error('Error leaving surgery session:', error);
+      }
+    });
+
+    socket.on('surgery:simulation-control', async (data) => {
+      try {
+        const { sessionId, action, status } = data;
+        
+        // Broadcast simulation state change to all participants
+        io.to(`surgery:${sessionId}`).emit('surgery:simulation-state-changed', {
+          action,
+          status,
+          timestamp: new Date()
+        });
+
+        logger.info(`Simulation ${action} in session ${sessionId}`);
+      } catch (error) {
+        logger.error('Error handling simulation control:', error);
+      }
+    });
+
+    socket.on('surgery:tool-interaction', async (data) => {
+      try {
+        const { sessionId, userId, toolType, position, force, timestamp } = data;
+        
+        // Broadcast tool interaction to other participants
+        socket.to(`surgery:${sessionId}`).emit('surgery:tool-update', {
+          userId,
+          toolType,
+          position,
+          force,
+          timestamp
+        });
+
+        logger.info(`Tool interaction by ${userId} in session ${sessionId}: ${toolType}`);
+      } catch (error) {
+        logger.error('Error handling tool interaction:', error);
+      }
+    });
+
+    socket.on('surgery:tissue-interaction', async (data) => {
+      try {
+        const { sessionId, userId, position, toolType, force, deformation } = data;
+        
+        // Broadcast tissue interaction to other participants
+        socket.to(`surgery:${sessionId}`).emit('surgery:tissue-update', {
+          userId,
+          position,
+          toolType,
+          force,
+          deformation,
+          timestamp: new Date()
+        });
+
+        logger.info(`Tissue interaction by ${userId} in session ${sessionId}`);
+      } catch (error) {
+        logger.error('Error handling tissue interaction:', error);
+      }
+    });
+
+    socket.on('surgery:chat-message', async (data) => {
+      try {
+        const { sessionId, userId, userName, message, messageType = 'chat' } = data;
+        
+        const chatMessage = {
+          id: `msg_${Date.now()}`,
+          userId,
+          userName,
+          message,
+          type: messageType,
+          timestamp: new Date()
+        };
+
+        // Broadcast chat message to all participants
+        io.to(`surgery:${sessionId}`).emit('surgery:chat-update', chatMessage);
+
+        logger.info(`Chat message in session ${sessionId} by ${userName}: ${message}`);
+      } catch (error) {
+        logger.error('Error handling surgery chat:', error);
+      }
+    });
+
     // Ping/Pong for connection health
     socket.on('ping', () => {
       socket.emit('pong', { timestamp: Date.now() });
@@ -464,8 +582,15 @@ const getUsersInPatientRoom = (patientId) => {
   return patientRooms.get(patientId) || new Set();
 };
 
+const getUsersInSurgerySession = async (sessionId) => {
+  // This would typically query a database for active session participants
+  // For now, return empty array - implement based on your session storage
+  return [];
+};
+
 module.exports = { 
   initializeSocket, 
   getActiveUsers, 
-  getUsersInPatientRoom 
+  getUsersInPatientRoom,
+  getUsersInSurgerySession
 };

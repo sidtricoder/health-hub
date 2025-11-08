@@ -377,7 +377,7 @@ export function Chat({ patientId, currentUser, patientName }: ChatProps) {
                             ? 'bg-blue-600 text-white ml-4' 
                             : 'bg-white text-gray-900 mr-4 border border-gray-200'
                         }`}>
-                          <p className="text-sm whitespace-pre-wrap break-words">
+                          <p className="text-sm whitespace-pre-wrap wrap-break-word">
                             {message.content}
                           </p>
                           <div className={`flex items-center justify-between mt-1 ${

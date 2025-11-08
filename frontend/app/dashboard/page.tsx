@@ -240,10 +240,24 @@ export default function DashboardPage() {
                   <div className="text-gray-500 capitalize">{user?.role || 'Staff'}</div>
                 </div>
               </div>
-              <Button variant="outline" size="sm" onClick={logout} className="hover:bg-red-50 hover:text-red-600 hover:border-red-200">
-                <LogOut className="h-4 w-4 mr-2" />
-                Logout
-              </Button>
+              <div className="flex items-center space-x-3">
+                {/* Surgery Simulation Button - Only for Doctors */}
+                {user?.role === 'doctor' && (
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => router.push('/surgery-simulation')}
+                    className="hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200"
+                  >
+                    <Stethoscope className="h-4 w-4 mr-2" />
+                    Surgery Simulation
+                  </Button>
+                )}
+                <Button variant="outline" size="sm" onClick={logout} className="hover:bg-red-50 hover:text-red-600 hover:border-red-200">
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Logout
+                </Button>
+              </div>
             </div>
           </div>
         </div>

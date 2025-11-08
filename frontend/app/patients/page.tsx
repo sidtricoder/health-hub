@@ -19,6 +19,7 @@ import {
   Activity,
   ArrowLeft,
   UserPlus,
+  Stethoscope,
   Calendar,
   Phone,
   Mail
@@ -108,15 +109,29 @@ export default function PatientsPage() {
                 <h1 className="text-2xl font-bold text-gray-900">Patient Management</h1>
               </div>
             </div>
-            {canCreatePatients && (
-              <Button 
-                onClick={() => router.push('/patients/new')}
-                className="bg-linear-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white border-0 shadow-lg"
-              >
-                <UserPlus className="h-4 w-4 mr-2" />
-                Add New Patient
-              </Button>
-            )}
+            <div className="flex items-center space-x-3">
+              {/* Surgery Simulation Button - Only for Doctors */}
+              {user?.role === 'doctor' && (
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => router.push('/surgery-simulation')}
+                  className="hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200"
+                >
+                  <Stethoscope className="h-4 w-4 mr-2" />
+                  Surgery Simulation
+                </Button>
+              )}
+              {canCreatePatients && (
+                <Button 
+                  onClick={() => router.push('/patients/new')}
+                  className="bg-linear-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white border-0 shadow-lg"
+                >
+                  <UserPlus className="h-4 w-4 mr-2" />
+                  Add New Patient
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </header>

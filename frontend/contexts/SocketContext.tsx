@@ -12,6 +12,7 @@ interface ActiveUser {
 }
 
 interface SocketContextType {
+  socket: any; // Add socket instance
   isConnected: boolean;
   isAuthenticated: boolean;
   messages: Message[];
@@ -321,8 +322,9 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <SocketContext.Provider
+    <SocketContext.Provider 
       value={{
+        socket: socketService.socket_,
         isConnected,
         isAuthenticated,
         messages,
@@ -337,7 +339,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
         updatePatient,
         startTyping,
         stopTyping,
-        sendPing,
+        sendPing
       }}
     >
       {children}

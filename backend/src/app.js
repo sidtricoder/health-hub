@@ -64,6 +64,7 @@ app.use('/api/messages', messageRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/timeline', timelineRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/simulations', require('./routes/simulations'));
 
 // Welcome route
 app.get('/', (req, res) => {
