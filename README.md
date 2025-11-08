@@ -755,14 +755,6 @@ MIT License - See LICENSE file for details
 
 Contributions are welcome! Please read our contributing guidelines before submitting PRs.
 
----
-
-## 📞 Contact & Support
-
-For questions, issues, or suggestions:
-- **GitHub Issues**: [Create an issue](https://github.com/your-repo/issues)
-- **Email**: support@healthhub.com
-- **Discord**: [Join our server](https://discord.gg/your-invite)
 
 ---
 
@@ -770,18 +762,5 @@ For questions, issues, or suggestions:
 
 Special thanks to:
 - **MERNIFY Hackathon** organizers for the opportunity
-- **Healthcare professionals** who provided domain expertise
 - **Open-source community** for the amazing tools and libraries
 - **All contributors** who made this project possible
-
----
-
-<div align="center">
-
-**Built with ❤️ for MERNIFY Hackathon 2025**
-
-*Transforming Healthcare Through Collaborative Technology*
-
-[🌐 Live Demo](#) | [📹 Demo Video](#) | [📚 Documentation](#) | [🐛 Report Bug](https://github.com/your-repo/issues)
-
-</div>
