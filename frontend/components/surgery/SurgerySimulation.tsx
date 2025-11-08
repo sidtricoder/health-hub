@@ -476,8 +476,6 @@ export function SurgerySimulation({ sessionId, userId, userRole = 'doctor', isHo
       <SurgeryUI
         selectedTool={selectedTool || 'scalpel'}
         onToolSelect={handleToolSelect}
-        isRecording={false}
-        onToggleRecording={() => {}}
         participants={simulationState.participants}
         simulationState={{
           status: simulationState.status,
@@ -486,12 +484,7 @@ export function SurgerySimulation({ sessionId, userId, userRole = 'doctor', isHo
           errors: simulationState.errors
         }}
         onSimulationControl={handleSimulationControl}
-        onSaveSimulation={handleSaveSimulation}
         userRole={'surgeon'}
-        audioEnabled={true}
-        onToggleAudio={() => {}}
-        isFullscreen={false}
-        onToggleFullscreen={() => {}}
       />
 
       {/* Collaboration Panel */}

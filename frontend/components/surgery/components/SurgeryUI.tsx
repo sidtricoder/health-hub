@@ -99,8 +99,6 @@ const SURGICAL_TOOLS = [
 export interface SurgeryUIProps {
   selectedTool: string;
   onToolSelect: (toolId: string) => void;
-  isRecording: boolean;
-  onToggleRecording: () => void;
   participants: Array<{
     id: string;
     name: string;
@@ -115,30 +113,47 @@ export interface SurgeryUIProps {
     errors: number;
   };
   onSimulationControl: (action: 'start' | 'pause' | 'stop' | 'reset') => void;
-  onSaveSimulation: () => void;
   userRole: 'surgeon' | 'assistant' | 'observer';
-  audioEnabled: boolean;
-  onToggleAudio: () => void;
-  isFullscreen: boolean;
-  onToggleFullscreen: () => void;
 }
 
 export function SurgeryUI({
   selectedTool,
   onToolSelect,
-  isRecording,
-  onToggleRecording,
   participants,
   simulationState,
   onSimulationControl,
-  onSaveSimulation,
-  userRole,
-  audioEnabled,
-  onToggleAudio,
-  isFullscreen,
-  onToggleFullscreen
+  userRole
 }: SurgeryUIProps) {
   const [showSettings, setShowSettings] = useState(false);
+  const [showToolPanel, setShowToolPanel] = useState(true);
+  const [showParticipants, setShowParticipants] = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().then(() => {
+        setIsFullscreen(true);
+      }).catch((err) => {
+        console.error('Error attempting to enable fullscreen:', err);
+      });
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().then(() => {
+          setIsFullscreen(false);
+        });
+      }
+    }
+  };
+
+  // Listen for fullscreen changes
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
 
   const formatDuration = useCallback((seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -202,21 +217,21 @@ export function SurgeryUI({
               </div>
             </div>
             
-            {/* Control Buttons */}
+            {/* Control Buttons - ONLY START/PAUSE/STOP */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 {simulationState.status === 'idle' || simulationState.status === 'paused' ? (
                   <Button
                     onClick={() => onSimulationControl('start')}
-                    className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold px-6 py-3 rounded-xl shadow-lg shadow-green-500/30 transition-all duration-200 hover:shadow-green-500/40"
+                    className="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold px-8 py-3 rounded-xl shadow-lg shadow-green-500/30 transition-all duration-200 hover:shadow-green-500/40 hover:scale-105"
                   >
                     <Play className="w-5 h-5 mr-2" />
-                    Start
+                    {simulationState.status === 'paused' ? 'Resume' : 'Start'}
                   </Button>
                 ) : (
                   <Button
                     onClick={() => onSimulationControl('pause')}
-                    className="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white font-semibold px-6 py-3 rounded-xl shadow-lg shadow-yellow-500/30 transition-all duration-200 hover:shadow-yellow-500/40"
+                    className="bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white font-semibold px-8 py-3 rounded-xl shadow-lg shadow-yellow-500/30 transition-all duration-200 hover:shadow-yellow-500/40 hover:scale-105"
                   >
                     <Pause className="w-5 h-5 mr-2" />
                     Pause
@@ -225,54 +240,39 @@ export function SurgeryUI({
                 
                 <Button
                   onClick={() => onSimulationControl('stop')}
-                  className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold px-6 py-3 rounded-xl shadow-lg shadow-red-500/30 transition-all duration-200 hover:shadow-red-500/40"
+                  className="bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold px-8 py-3 rounded-xl shadow-lg shadow-red-500/30 transition-all duration-200 hover:shadow-red-500/40 hover:scale-105"
                 >
                   <Square className="w-5 h-5 mr-2" />
                   Stop
                 </Button>
-                
-                <Button
-                  onClick={() => onSimulationControl('reset')}
-                  className="bg-gradient-to-r from-gray-500 to-gray-600 hover:from-gray-600 hover:to-gray-700 text-white font-semibold px-6 py-3 rounded-xl shadow-lg shadow-gray-500/30 transition-all duration-200 hover:shadow-gray-500/40"
-                >
-                  <RotateCcw className="w-5 h-5 mr-2" />
-                  Reset
-                </Button>
               </div>
 
               <div className="flex items-center gap-3">
+                {/* Fullscreen Toggle */}
                 <Button
-                  onClick={onToggleRecording}
-                  className={`font-semibold px-6 py-3 rounded-xl shadow-lg transition-all duration-200 ${
-                    isRecording 
-                      ? 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white shadow-red-500/30 hover:shadow-red-500/40'
-                      : 'bg-white border-2 border-red-200 text-red-600 hover:bg-red-50 shadow-red-200/30'
-                  }`}
-                >
-                  {isRecording ? <Square className="w-5 h-5 mr-2" /> : <Camera className="w-5 h-5 mr-2" />}
-                  {isRecording ? 'Stop Recording' : 'Record'}
-                </Button>
-                
-                <Button
-                  onClick={onToggleAudio}
-                  className="bg-white border-2 border-gray-200 text-gray-700 hover:bg-gray-50 font-semibold px-4 py-3 rounded-xl shadow-lg transition-all duration-200"
-                >
-                  {audioEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
-                </Button>
-                
-                <Button
-                  onClick={onToggleFullscreen}
-                  className="bg-white border-2 border-gray-200 text-gray-700 hover:bg-gray-50 font-semibold px-4 py-3 rounded-xl shadow-lg transition-all duration-200"
+                  onClick={toggleFullscreen}
+                  className="bg-white border-2 border-gray-200 text-gray-700 hover:bg-gray-50 font-semibold px-5 py-3 rounded-xl shadow-lg transition-all duration-200 hover:scale-105"
+                  title={isFullscreen ? 'Exit Fullscreen (F11)' : 'Enter Fullscreen (F11)'}
                 >
                   {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
                 </Button>
 
+                {/* Hide Tool Panel */}
                 <Button
-                  onClick={onSaveSimulation}
-                  className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold px-6 py-3 rounded-xl shadow-lg shadow-blue-500/30 transition-all duration-200 hover:shadow-blue-500/40"
+                  onClick={() => setShowToolPanel(!showToolPanel)}
+                  className="bg-white border-2 border-purple-200 text-purple-700 hover:bg-purple-50 font-semibold px-5 py-3 rounded-xl shadow-lg transition-all duration-200 hover:scale-105"
+                  title={showToolPanel ? 'Hide Tools' : 'Show Tools'}
                 >
-                  <Save className="w-5 h-5 mr-2" />
-                  Save
+                  {showToolPanel ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </Button>
+
+                {/* Hide Participants Panel */}
+                <Button
+                  onClick={() => setShowParticipants(!showParticipants)}
+                  className="bg-white border-2 border-green-200 text-green-700 hover:bg-green-50 font-semibold px-5 py-3 rounded-xl shadow-lg transition-all duration-200 hover:scale-105"
+                  title={showParticipants ? 'Hide Team' : 'Show Team'}
+                >
+                  {showParticipants ? <Users className="w-5 h-5" /> : <Users className="w-5 h-5" />}
                 </Button>
               </div>
             </div>
@@ -281,6 +281,7 @@ export function SurgeryUI({
       </div>
 
       {/* Left Panel - Surgical Tools - Premium Design */}
+      {showToolPanel && (
       <div className="absolute top-40 left-4 w-80 pointer-events-auto">
         <div className="bg-white/95 backdrop-blur-2xl rounded-3xl border border-white/30 shadow-2xl shadow-black/5">
           <div className="p-6">
@@ -330,8 +331,10 @@ export function SurgeryUI({
           </div>
         </div>
       </div>
+      )}
 
       {/* Right Panel - Participants & Stats - Premium Design */}
+      {showParticipants && (
       <div className="absolute top-40 right-4 w-80 pointer-events-auto">
         <div className="bg-white/95 backdrop-blur-2xl rounded-3xl border border-white/30 shadow-2xl shadow-black/5">
           <div className="p-6">
@@ -391,6 +394,7 @@ export function SurgeryUI({
           </div>
         </div>
       </div>
+      )}
 
       {/* Bottom Status Bar - Sleek Design */}
       <div className="absolute bottom-4 left-4 right-4 pointer-events-auto">
