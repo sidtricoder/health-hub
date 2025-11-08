@@ -675,6 +675,120 @@ const initializeSocket = (io) => {
       }
     });
 
+    // ===== VOICE CHAT WEBRTC SIGNALING =====
+    
+    // User ready for voice chat
+    socket.on('voice:ready', (data) => {
+      try {
+        const { sessionId, userId, userName } = data;
+        logger.info(`Voice ready: ${userName} in session ${sessionId}`);
+        
+        // Notify all other participants in the session
+        socket.to(`surgery:${sessionId}`).emit('voice:ready', {
+          userId,
+          userName
+        });
+      } catch (error) {
+        logger.error('Error handling voice ready:', error);
+      }
+    });
+
+    // WebRTC offer
+    socket.on('voice:offer', (data) => {
+      try {
+        const { sessionId, targetUserId, offer } = data;
+        
+        // Find target user's socket
+        const sessionUsers = surgerySessionUsers.get(sessionId);
+        if (sessionUsers) {
+          const targetUser = sessionUsers.get(targetUserId);
+          if (targetUser) {
+            io.to(targetUser.socketId).emit('voice:offer', {
+              userId: socket.userId,
+              userName: socket.user?.name,
+              offer
+            });
+          }
+        }
+      } catch (error) {
+        logger.error('Error handling voice offer:', error);
+      }
+    });
+
+    // WebRTC answer
+    socket.on('voice:answer', (data) => {
+      try {
+        const { sessionId, targetUserId, answer } = data;
+        
+        // Find target user's socket
+        const sessionUsers = surgerySessionUsers.get(sessionId);
+        if (sessionUsers) {
+          const targetUser = sessionUsers.get(targetUserId);
+          if (targetUser) {
+            io.to(targetUser.socketId).emit('voice:answer', {
+              userId: socket.userId,
+              answer
+            });
+          }
+        }
+      } catch (error) {
+        logger.error('Error handling voice answer:', error);
+      }
+    });
+
+    // ICE candidate exchange
+    socket.on('voice:ice-candidate', (data) => {
+      try {
+        const { sessionId, targetUserId, candidate } = data;
+        
+        // Find target user's socket
+        const sessionUsers = surgerySessionUsers.get(sessionId);
+        if (sessionUsers) {
+          const targetUser = sessionUsers.get(targetUserId);
+          if (targetUser) {
+            io.to(targetUser.socketId).emit('voice:ice-candidate', {
+              userId: socket.userId,
+              candidate
+            });
+          }
+        }
+      } catch (error) {
+        logger.error('Error handling ICE candidate:', error);
+      }
+    });
+
+    // User leaving voice chat
+    socket.on('voice:leave', (data) => {
+      try {
+        const { sessionId, userId } = data;
+        logger.info(`Voice leave: ${userId} from session ${sessionId}`);
+        
+        // Notify all participants
+        socket.to(`surgery:${sessionId}`).emit('voice:leave', {
+          userId
+        });
+      } catch (error) {
+        logger.error('Error handling voice leave:', error);
+      }
+    });
+
+    // Mute status update
+    socket.on('voice:mute-status', (data) => {
+      try {
+        const { sessionId, userId, isMuted } = data;
+        
+        // Broadcast mute status to all participants
+        socket.to(`surgery:${sessionId}`).emit('voice:mute-status', {
+          userId,
+          isMuted
+        });
+      } catch (error) {
+        logger.error('Error handling mute status:', error);
+      }
+    });
+
+    // ===== END VOICE CHAT SIGNALING =====
+
     // Ping/Pong for connection health
     socket.on('ping', () => {
       socket.emit('pong', { timestamp: Date.now() });

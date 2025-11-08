@@ -8,3 +8,4 @@ export { EnhancedCameraControls } from './EnhancedCameraControls';
 export { EnhancedOperatingRoom } from './EnhancedOperatingRoom';
 export { CollaborativeCursors, useCursorBroadcast } from './CollaborativeCursors';
 export { RealtimeToolSync, useToolPositionBroadcast } from './RealtimeToolSync';
+export { VoiceChatPanel } from './VoiceChatPanel';

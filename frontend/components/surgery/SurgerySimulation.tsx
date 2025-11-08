@@ -13,8 +13,10 @@ import { EnhancedCameraControls } from './components/EnhancedCameraControls';
 import { EnhancedOperatingRoom } from './components/EnhancedOperatingRoom';
 import { CollaborativeCursors, useCursorBroadcast } from './components/CollaborativeCursors';
 import { RealtimeToolSync, useToolPositionBroadcast } from './components/RealtimeToolSync';
+import { VoiceChatPanel } from './components/VoiceChatPanel';
 import { useSocket } from '../../contexts/SocketContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { useVoiceChat } from '../../hooks/useVoiceChat';
 
 interface SurgerySimulationProps {
   sessionId: string;
@@ -222,6 +224,15 @@ export function SurgerySimulation({ sessionId, userId, userRole = 'doctor', isHo
     toolQuaternion,
     isDragging || simulationState.status === 'active'
   );
+
+  // Voice Chat for doctor communication
+  const voiceChat = useVoiceChat({
+    socket,
+    sessionId,
+    userId,
+    userName,
+    enabled: true
+  });
 
   const handleToolSelect = (toolType: string) => {
     setSelectedTool(toolType);
@@ -493,6 +504,18 @@ export function SurgerySimulation({ sessionId, userId, userRole = 'doctor', isHo
         participants={simulationState.participants}
         userId={userId}
         socket={socket}
+      />
+
+      {/* Voice Chat Panel */}
+      <VoiceChatPanel
+        isMicEnabled={voiceChat.isMicEnabled}
+        isMuted={voiceChat.isMuted}
+        isConnecting={voiceChat.isConnecting}
+        peers={voiceChat.peers}
+        audioLevels={voiceChat.audioLevels}
+        onStartMicrophone={voiceChat.startMicrophone}
+        onStopMicrophone={voiceChat.stopMicrophone}
+        onToggleMute={voiceChat.toggleMute}
       />
 
       {/* Cursor Status Indicator */}
